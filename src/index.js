@@ -1,34 +1,33 @@
 const express = require('express');
 const helmet = require('helmet');
-const cors = require('cors');
 const rateLimit = require('express-rate-limit');
-require('dotenv').config();
+const dotenv = require('dotenv');
+const authRoutes = require('./routes/auth');
 
+dotenv.config();
 const app = express();
 
-// Security middleware
 app.use(helmet());
+app.use(express.json());
 
-// Enable CORS
-app.use(cors());
-
-// Rate limiting to prevent brute force attacks
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
+  windowMs: 15 * 60 * 1000,
+  max: 100,
 });
 app.use(limiter);
 
-// Parse JSON requests
-app.use(express.json());
+app.use('/api/auth', authRoutes);
 
-// Basic route
 app.get('/', (req, res) => {
-  res.status(200).json({ message: 'Welcome to Growish API' });
+  res.status(200).json({ message: 'Growish API Catalog is running' });
 });
 
-// Start the server
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ error: 'Something went wrong!' });
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+  console.log(`Growish API Catalog is running on port ${PORT}`);
 });
