@@ -4,6 +4,7 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const dotenv = require('dotenv');
 const authRoutes = require('./routes/auth');
+const categoryRoutes = require('./routes/categories');
 
 dotenv.config();
 const app = express();
@@ -26,6 +27,7 @@ const limiter = rateLimit({
 app.use(limiter);
 
 app.use('/api/auth', authRoutes);
+app.use('/api/categories', categoryRoutes);
 
 app.get('/', (req, res) => {
   res.status(200).json({ message: 'Growish API Catalog is running' });
