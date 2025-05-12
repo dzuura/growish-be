@@ -4,6 +4,7 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const dotenv = require('dotenv');
 const authRoutes = require('./routes/auth');
+const materialRoutes = require('./routes/materials');
 const categoryRoutes = require('./routes/categories');
 
 dotenv.config();
@@ -27,6 +28,7 @@ const limiter = rateLimit({
 app.use(limiter);
 
 app.use('/api/auth', authRoutes);
+app.use('/api/materials', materialRoutes);
 app.use('/api/categories', categoryRoutes);
 
 app.get('/', (req, res) => {
