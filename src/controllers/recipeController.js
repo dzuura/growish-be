@@ -4,14 +4,24 @@ const supabaseResearcher = require('../config/supabase-researcher')
 
 exports.getRecipes = async (req, res) => {
   const userId = req.user.id;
-  const { page = 1, limit = 10 } = req.query;
+  const { page = 1, limit = 10, category, search } = req.query;
   const offset = (page - 1) * limit;
 
-  const recipeQuery = supabaseNutritionist
+  let recipeQuery = supabaseNutritionist
     .from('recipes')
     .select('*, recipe_materials(material_id, quantity)', { count: 'exact' })
-    .eq('user_id', userId)
-    .range(offset, offset + parseInt(limit) - 1);
+    .eq('user_id', userId);
+
+
+  if (category) {
+    recipeQuery = recipeQuery.eq('category', category);
+  }
+
+  if (search) {
+    recipeQuery = recipeQuery.ilike('name', `%${search}%`);
+  }
+
+  recipeQuery = recipeQuery.range(offset, offset + parseInt(limit) - 1);
 
   const { data: recipes, count, error } = await recipeQuery;
 
