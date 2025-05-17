@@ -5,6 +5,7 @@ const rateLimit = require('express-rate-limit');
 const dotenv = require('dotenv');
 const authRoutes = require('./routes/auth');
 const materialRoutes = require('./routes/materials');
+const recipeRoutes = require('./routes/recipes');
 const categoryRoutes = require('./routes/categories');
 
 dotenv.config();
@@ -29,6 +30,7 @@ app.use(limiter);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/materials', materialRoutes);
+app.use('/api/recipes', recipeRoutes);
 app.use('/api/categories', categoryRoutes);
 
 app.get('/', (req, res) => {
