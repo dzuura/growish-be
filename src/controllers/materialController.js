@@ -104,13 +104,129 @@ exports.getMaterials = async (req, res) => {
   });
 };
 
+exports.getMyMaterials = async (req, res) => {
+  const { page = 1, limit = 10, category, search } = req.query;
+  const offset = (page - 1) * limit;
+  const userId = req.user.id;
+
+  const { data: availableCategories, error: catError } =
+    await supabaseResearcher.from("categories").select("name");
+
+  if (catError) {
+    return res.status(500).json({
+      error: "Failed to fetch available categories",
+      details: catError.message,
+    });
+  }
+
+  const availableCategoryNames = availableCategories.map((cat) => cat.name);
+
+  if (category && category !== "all") {
+    if (
+      !availableCategoryNames
+        .map((name) => name.toLowerCase())
+        .includes(category.toLowerCase())
+    ) {
+      return res.status(400).json({
+        error: `Category ${category} does not exist`,
+        availableCategories: availableCategoryNames,
+      });
+    }
+  }
+
+  let query = supabaseResearcher
+    .from("materials")
+    .select(
+      `
+      *,
+      material_categories (
+        category_id,
+        categories (
+          name
+        )
+      )
+    `,
+      { count: "exact" }
+    )
+    .eq("user_id", userId);
+
+  if (search) {
+    query = query.ilike("name", `%${search}%`);
+  }
+
+  const { data, error, count } = await query;
+
+  if (error) {
+    return res
+      .status(500)
+      .json({ error: "Failed to fetch materials", details: error.message });
+  }
+
+  if (!data || data.length === 0) {
+    return res.status(404).json({ error: "No materials found" });
+  }
+
+  let filteredData = data;
+  if (category && category !== "all") {
+    filteredData = data.filter((item) =>
+      item.material_categories?.some(
+        (mc) => mc.categories?.name?.toLowerCase() === category.toLowerCase()
+      )
+    );
+  }
+
+  if (filteredData.length === 0) {
+    return res.status(404).json({
+      error: `No materials found for category ${category}`,
+      availableCategories: availableCategoryNames,
+    });
+  }
+
+  const total = filteredData.length;
+  const paginatedData = filteredData.slice(offset, offset + Number(limit));
+
+  const mappedData = paginatedData.map((item) => {
+    const categoryNames =
+      item.material_categories
+        ?.map((mc) => mc.categories?.name)
+        .filter(Boolean) || [];
+
+    const { material_categories, ...rest } = item;
+    return {
+      ...rest,
+      categories: categoryNames,
+    };
+  });
+
+  res.status(200).json({
+    message: "List of my materials",
+    data: mappedData,
+    pagination: {
+      page: Number(page),
+      limit: Number(limit),
+      total: count,
+      totalPages: Math.ceil(total / limit),
+    },
+  });
+};
+
 exports.getMaterialStats = async (req, res) => {
+  const userId = req.user.id;
+
   const { data: totalMaterials, error: totalError } = await supabaseResearcher
     .from("materials")
     .select("*", { count: "exact" });
 
   if (totalError)
     return res.status(500).json({ error: "Failed to fetch total materials" });
+
+  const { data: myMaterials, error: myError } = await supabaseResearcher
+    .from("materials")
+    .select("*", { count: "exact" })
+    .eq("user_id", userId);
+
+  if (myError)
+    return res.status(500).json({ error: "Failed to fetch my materials" });
 
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
@@ -152,6 +268,7 @@ exports.getMaterialStats = async (req, res) => {
     message: "Material statistics",
     data: {
       totalMaterials: totalMaterials.length,
+      myMaterials: myMaterials.length,
       newMaterials: newMaterials.length,
       categoryStats,
       totalMaterialCategory: totalMaterialCategory,
@@ -206,6 +323,7 @@ exports.getMaterialById = async (req, res) => {
 };
 
 exports.createMaterial = async (req, res) => {
+  const userId = req.user.id;
   const {
     name,
     calories,
@@ -233,6 +351,7 @@ exports.createMaterial = async (req, res) => {
   }
 
   const material = {
+    user_id: userId,
     name,
     calories,
     protein,
@@ -272,8 +391,10 @@ exports.createMaterial = async (req, res) => {
   const categoryIds = await materialService.categorizeMaterial(material);
   if (!categoryIds || categoryIds.length === 0) {
     await supabaseResearcher.from("materials").delete().eq("id", data.id);
-    return res.status(500).json({
-      error: "Failed to categorize material, material creation rolled back",
+    return res.status(400).json({
+      error: "No matching categories found for the material",
+      details:
+        "Please ensure categories with appropriate nutrient ranges exist",
     });
   }
 
@@ -298,6 +419,7 @@ exports.createMaterial = async (req, res) => {
 
 exports.updateMaterial = async (req, res) => {
   const { id } = req.params;
+  const userId = req.user.id;
   const {
     name,
     calories,
@@ -324,7 +446,23 @@ exports.updateMaterial = async (req, res) => {
     return res.status(400).json({ error: "Material name must be a string" });
   }
 
-  const material = {
+  const { data: material, error: checkError } = await supabaseResearcher
+    .from("materials")
+    .select("user_id")
+    .eq("id", id)
+    .single();
+
+  if (checkError || !material) {
+    return res.status(404).json({ error: `Material with ID ${id} not found` });
+  }
+
+  if (material.user_id !== userId) {
+    return res
+      .status(403)
+      .json({ error: "You can only edit materials you created" });
+  }
+
+  const updatedMaterial = {
     name,
     calories,
     protein,
@@ -348,7 +486,7 @@ exports.updateMaterial = async (req, res) => {
 
   const { data, error } = await supabaseResearcher
     .from("materials")
-    .update(material)
+    .update(updatedMaterial)
     .eq("id", id)
     .select()
     .single();
@@ -364,11 +502,13 @@ exports.updateMaterial = async (req, res) => {
     .from("material_categories")
     .delete()
     .eq("material_id", id);
-  const categoryIds = await materialService.categorizeMaterial(material);
+  const categoryIds = await materialService.categorizeMaterial(updatedMaterial);
   if (!categoryIds || categoryIds.length === 0) {
-    return res
-      .status(500)
-      .json({ error: "Failed to categorize material after update" });
+    return res.status(400).json({
+      error: "No matching categories found for the material after update",
+      details:
+        "Please ensure categories with appropriate nutrient ranges exist",
+    });
   }
 
   const materialCategories = categoryIds.map((category_id) => ({
@@ -391,15 +531,22 @@ exports.updateMaterial = async (req, res) => {
 
 exports.deleteMaterial = async (req, res) => {
   const { id } = req.params;
+  const userId = req.user.id;
 
   const { data: material, error: checkError } = await supabaseResearcher
     .from("materials")
-    .select("id")
+    .select("user_id")
     .eq("id", id)
     .single();
 
   if (checkError || !material) {
     return res.status(404).json({ error: `Material with ID ${id} not found` });
+  }
+
+  if (material.user_id !== userId) {
+    return res
+      .status(403)
+      .json({ error: "You can only delete materials you created" });
   }
 
   const { error } = await supabaseResearcher
