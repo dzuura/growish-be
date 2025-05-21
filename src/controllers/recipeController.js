@@ -2,6 +2,115 @@ const supabaseNutritionist = require("../config/supabase-nutritionist");
 const supabaseResearcher = require("../config/supabase-researcher");
 
 exports.getRecipes = async (req, res) => {
+  const { page = 1, limit = 10, category, search } = req.query;
+  const offset = (page - 1) * limit;
+
+  const { data: availableCategories, error: catError } =
+    await supabaseResearcher.from("categories").select("name");
+
+  if (catError) {
+    return res.status(500).json({
+      error: "Failed to fetch available categories",
+      details: catError.message,
+    });
+  }
+
+  const availableCategoryNames = availableCategories.map((cat) => cat.name);
+
+  if (category && category !== "all") {
+    if (
+      !availableCategoryNames
+        .map((name) => name.toLowerCase())
+        .includes(category.toLowerCase())
+    ) {
+      return res.status(400).json({
+        error: `Category ${category} does not exist`,
+        availableCategories: availableCategoryNames,
+      });
+    }
+  }
+
+  let recipeQuery = supabaseNutritionist
+    .from("recipes")
+    .select("*, recipe_materials(material_id, quantity)", { count: "exact" });
+
+  if (category && category !== "all") {
+    recipeQuery = recipeQuery.eq("category", category);
+  }
+
+  if (search) {
+    recipeQuery = recipeQuery.ilike("name", `%${search}%`);
+  }
+
+  const { data: recipes, count, error } = await recipeQuery;
+
+  if (error) {
+    return res
+      .status(500)
+      .json({ error: "Failed to fetch recipes", details: error.message });
+  }
+
+  if (!recipes || recipes.length === 0) {
+    return res.status(404).json({ error: "No recipes found" });
+  }
+
+  let filteredData = recipes;
+  if (category && category !== "all") {
+    filteredData = recipes.filter(
+      (item) => item.category.toLowerCase() === category.toLowerCase()
+    );
+  }
+
+  if (filteredData.length === 0) {
+    return res.status(404).json({
+      error: `No recipes found for category ${category}`,
+      availableCategories: availableCategoryNames,
+    });
+  }
+
+  const total = filteredData.length;
+  const paginatedData = filteredData.slice(offset, offset + Number(limit));
+
+  const materialIds = [
+    ...new Set(
+      paginatedData.flatMap((r) => r.recipe_materials.map((m) => m.material_id))
+    ),
+  ];
+
+  const { data: materialsData, error: matError } = await supabaseResearcher
+    .from("materials")
+    .select("*")
+    .in("id", materialIds);
+
+  if (matError) {
+    return res
+      .status(500)
+      .json({ error: "Failed to fetch materials", details: matError.message });
+  }
+
+  const materialsMap = Object.fromEntries(materialsData.map((m) => [m.id, m]));
+
+  const enrichedRecipes = paginatedData.map((recipe) => ({
+    ...recipe,
+    recipe_materials: recipe.recipe_materials.map((rm) => ({
+      ...rm,
+      material: materialsMap[rm.material_id] || null,
+    })),
+  }));
+
+  res.status(200).json({
+    message: "List of recipes",
+    data: enrichedRecipes,
+    pagination: {
+      page: Number(page),
+      limit: Number(limit),
+      total: count,
+      totalPages: Math.ceil(count / limit),
+    },
+  });
+};
+
+exports.getMyRecipes = async (req, res) => {
   const userId = req.user.id;
   const { page = 1, limit = 10, category, search } = req.query;
   const offset = (page - 1) * limit;
@@ -101,7 +210,7 @@ exports.getRecipes = async (req, res) => {
   }));
 
   res.status(200).json({
-    message: "List of recipes",
+    message: "List of my recipes",
     data: enrichedRecipes,
     pagination: {
       page: Number(page),
@@ -117,13 +226,24 @@ exports.getRecipeStats = async (req, res) => {
 
   const { data: totalRecipes, error: totalError } = await supabaseNutritionist
     .from("recipes")
-    .select("*", { count: "exact" })
-    .eq("user_id", userId);
+    .select("*", { count: "exact" });
 
   if (totalError) {
     return res.status(500).json({
       error: "Failed to fetch total recipes",
       details: totalError.message,
+    });
+  }
+
+  const { data: myRecipes, error: myError } = await supabaseNutritionist
+    .from("recipes")
+    .select("*", { count: "exact" })
+    .eq("user_id", userId);
+
+  if (myError) {
+    return res.status(500).json({
+      error: "Failed to fetch my recipes",
+      details: myError.message,
     });
   }
 
@@ -141,6 +261,7 @@ exports.getRecipeStats = async (req, res) => {
     message: "Recipe statistics",
     data: {
       totalRecipes: totalRecipes.length,
+      myRecipes: myRecipes.length,
       totalMaterials: totalMaterials.length,
     },
   });
@@ -154,7 +275,6 @@ exports.getRecipeById = async (req, res) => {
     .from("recipes")
     .select("*, recipe_materials(material_id, quantity)")
     .eq("id", recipeId)
-    .eq("user_id", userId)
     .single();
 
   if (error) {
@@ -313,8 +433,8 @@ exports.updateRecipe = async (req, res) => {
 
   if (findError || !recipeExists) {
     return res
-      .status(404)
-      .json({ error: `Recipe with ID ${recipeId} not found` });
+      .status(403)
+      .json({ error: `You can only edit recipes you created` });
   }
 
   const materialIds = materials.map((mat) => mat.id);
@@ -388,8 +508,8 @@ exports.deleteRecipe = async (req, res) => {
 
   if (findError || !recipe) {
     return res
-      .status(404)
-      .json({ error: `Recipe with ID ${recipeId} not found` });
+      .status(403)
+      .json({ error: `You can only delete recipes you created` });
   }
 
   await supabaseNutritionist
