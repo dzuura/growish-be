@@ -35,7 +35,9 @@ exports.getRecipes = async (req, res) => {
 
   let recipeQuery = supabaseNutritionist
     .from("recipes")
-    .select("*, recipe_materials(material_id, quantity)", { count: "exact" });
+    .select("id, user_id, name, image_url, description, category", {
+      count: "exact",
+    });
 
   if (category && category !== "all") {
     recipeQuery = recipeQuery.eq("category", category);
@@ -74,36 +76,9 @@ exports.getRecipes = async (req, res) => {
   const total = filteredData.length;
   const paginatedData = filteredData.slice(offset, offset + Number(limit));
 
-  const materialIds = [
-    ...new Set(
-      paginatedData.flatMap((r) => r.recipe_materials.map((m) => m.material_id))
-    ),
-  ];
-
-  const { data: materialsData, error: matError } = await supabaseResearcher
-    .from("materials")
-    .select("*")
-    .in("id", materialIds);
-
-  if (matError) {
-    return res
-      .status(500)
-      .json({ error: "Failed to fetch materials", details: matError.message });
-  }
-
-  const materialsMap = Object.fromEntries(materialsData.map((m) => [m.id, m]));
-
-  const enrichedRecipes = paginatedData.map((recipe) => ({
-    ...recipe,
-    recipe_materials: recipe.recipe_materials.map((rm) => ({
-      ...rm,
-      material: materialsMap[rm.material_id] || null,
-    })),
-  }));
-
   res.status(200).json({
     message: "List of recipes",
-    data: enrichedRecipes,
+    data: paginatedData,
     pagination: {
       page: Number(page),
       limit: Number(limit),
@@ -276,7 +251,9 @@ exports.getRecipeById = async (req, res) => {
 
   const { data: recipe, error } = await supabaseNutritionist
     .from("recipes")
-    .select("*, recipe_materials(material_id, quantity)")
+    .select(
+      "id, user_id, name, image_url, description, category, steps, nutrients, recipe_materials(material_id, quantity)"
+    )
     .eq("id", recipeId)
     .single();
 
@@ -293,7 +270,7 @@ exports.getRecipeById = async (req, res) => {
   const materialIds = recipe.recipe_materials.map((rm) => rm.material_id);
   const { data: materialsData, error: matError } = await supabaseResearcher
     .from("materials")
-    .select("*")
+    .select("id, name")
     .in("id", materialIds);
 
   if (matError) {
@@ -302,14 +279,17 @@ exports.getRecipeById = async (req, res) => {
       .json({ error: "Failed to fetch materials", details: matError.message });
   }
 
-  const materialsMap = Object.fromEntries(materialsData.map((m) => [m.id, m]));
+  const materialsMap = Object.fromEntries(
+    materialsData.map((m) => [m.id, m.name])
+  );
   const enrichedMaterials = recipe.recipe_materials.map((rm) => ({
-    ...rm,
+    quantity: rm.quantity,
     material: materialsMap[rm.material_id] || null,
   }));
 
+  const { recipe_materials, created_at, ...rest } = recipe;
   const formattedData = {
-    ...recipe,
+    ...rest,
     recipe_materials: enrichedMaterials,
   };
 
@@ -317,38 +297,38 @@ exports.getRecipeById = async (req, res) => {
 };
 
 exports.createRecipe = async (req, res) => {
-  console.log("createRecipe called");
-
   const userId = req.user.id;
   let { name, description, category, materials, steps } = req.body;
 
-  console.log("Request body:", { name, description, category, materials, steps });
-
   try {
-    if (typeof materials === 'string') {
+    if (typeof materials === "string") {
       materials = JSON.parse(materials);
-      console.log("Parsed materials:", materials);
     }
-    if (typeof steps === 'string') {
+    if (typeof steps === "string") {
       steps = JSON.parse(steps);
-      console.log("Parsed steps:", steps);
     }
   } catch (error) {
-    console.error("Parse error:", error);
-    return res.status(400).json({ error: "Invalid format for materials or steps", details: error.message });
+    return res
+      .status(400)
+      .json({
+        error: "Invalid format for materials or steps",
+        details: error.message,
+      });
   }
 
-  if (!name || !category || !materials || !Array.isArray(materials) || !Array.isArray(steps)) {
-    console.log("Missing required fields");
+  if (
+    !name ||
+    !category ||
+    !materials ||
+    !Array.isArray(materials) ||
+    !Array.isArray(steps)
+  ) {
     return res.status(400).json({ error: "Missing required fields" });
   }
 
   if (typeof name !== "string") {
-    console.log("Name is not a string");
     return res.status(400).json({ error: "Recipe name must be a string" });
   }
-
-  console.log("Checking if recipe name already exists for user:", userId);
 
   const { data: existingRecipe, error: checkError } = await supabaseNutritionist
     .from("recipes")
@@ -357,15 +337,16 @@ exports.createRecipe = async (req, res) => {
     .eq("name", name)
     .single();
 
-  console.log("Check existing recipe result:", { existingRecipe, checkError });
-
   if (checkError && checkError.code !== "PGRST116") {
-    console.error("Failed to check existing recipe:", checkError);
-    return res.status(500).json({ error: "Failed to check existing recipe", details: checkError.message });
+    return res
+      .status(500)
+      .json({
+        error: "Failed to check existing recipe",
+        details: checkError.message,
+      });
   }
 
   if (existingRecipe) {
-    console.log("Recipe name already exists");
     return res.status(400).json({ error: "Recipe name already exists" });
   }
 
@@ -373,10 +354,7 @@ exports.createRecipe = async (req, res) => {
   let uploadedFilePath = null;
   if (req.file) {
     const file = req.file;
-    console.log("File received:", file);
-
     if (file.size > MAX_IMAGE_SIZE) {
-      console.log("Image size exceeds limit");
       return res.status(400).json({ error: `Image size exceeds 5MB limit` });
     }
 
@@ -384,62 +362,56 @@ exports.createRecipe = async (req, res) => {
     const timestamp = Date.now();
     uploadedFilePath = `${sanitizedRecipeName}/${timestamp}_${file.originalname}`;
 
-    console.log("Uploading file to:", uploadedFilePath);
-
     const { data, error: uploadError } = await supabaseNutritionist.storage
-      .from('recipes-images')
+      .from("recipes-images")
       .upload(uploadedFilePath, file.buffer, {
         contentType: file.mimetype,
         upsert: false,
       });
 
-    console.log("Upload result:", { data, uploadError });
-
     if (uploadError) {
-      console.error("Failed to upload image:", uploadError);
-      return res.status(500).json({ error: "Failed to upload image", details: uploadError.message });
+      return res
+        .status(500)
+        .json({
+          error: "Failed to upload image",
+          details: uploadError.message,
+        });
     }
 
     imageUrl = supabaseNutritionist.storage
-      .from('recipes-images')
+      .from("recipes-images")
       .getPublicUrl(uploadedFilePath).data.publicUrl;
-
-    console.log("Image uploaded to:", imageUrl);
   }
-
-  console.log("Fetching available categories");
 
   const { data: availableCategories, error: catError } =
     await supabaseResearcher.from("categories").select("name");
-
-  console.log("Available categories fetch result:", { availableCategories, catError });
-
   if (catError) {
-    console.error("Failed to fetch categories:", catError);
     if (uploadedFilePath) {
       await supabaseNutritionist.storage
-        .from('recipes-images')
+        .from("recipes-images")
         .remove([uploadedFilePath])
         .catch((removeError) => {
-          console.error("Failed to clean up uploaded file:", removeError.message);
+          console.error(
+            "Failed to clean up uploaded file:",
+            removeError.message
+          );
         });
     }
     return res
       .status(500)
       .json({ error: "Failed to fetch categories", details: catError.message });
   }
-
   const availableCategoryNames = availableCategories.map((cat) => cat.name);
-  console.log("Available category names:", availableCategoryNames);
-
   if (!availableCategoryNames.includes(category)) {
-    console.log(`Category ${category} does not exist`);
     if (uploadedFilePath) {
       await supabaseNutritionist.storage
-        .from('recipes-images')
+        .from("recipes-images")
         .remove([uploadedFilePath])
         .catch((removeError) => {
-          console.error("Failed to clean up uploaded file:", removeError.message);
+          console.error(
+            "Failed to clean up uploaded file:",
+            removeError.message
+          );
         });
     }
     return res.status(400).json({
@@ -449,23 +421,20 @@ exports.createRecipe = async (req, res) => {
   }
 
   const materialIds = materials.map((mat) => mat.id);
-  console.log("Material IDs to validate:", materialIds);
-
   const { data: validMaterials, error: matError } = await supabaseResearcher
     .from("materials")
-    .select("id, calories, protein, total_fat, saturated_fat, trans_fat, cholesterol, carbohydrates, sugar, fiber, natrium, amino_acid, vitamin_d, magnesium, iron")
+    .select("*")
     .in("id", materialIds);
-
-  console.log("Valid materials fetch result:", { validMaterials, matError });
-
   if (matError) {
-    console.error("Failed to validate materials:", matError);
     if (uploadedFilePath) {
       await supabaseNutritionist.storage
-        .from('recipes-images')
+        .from("recipes-images")
         .remove([uploadedFilePath])
         .catch((removeError) => {
-          console.error("Failed to clean up uploaded file:", removeError.message);
+          console.error(
+            "Failed to clean up uploaded file:",
+            removeError.message
+          );
         });
     }
     return res.status(500).json({
@@ -473,59 +442,32 @@ exports.createRecipe = async (req, res) => {
       details: matError.message,
     });
   }
-
-  let totalCalories = 0;
-  let totalProtein = 0;
-  let totalFat = 0;
-  let totalSaturatedFat = 0;
-  let totalTransFat = 0;
-  let totalCholesterol = 0;
-  let totalCarbohydrates = 0;
-  let totalSugar = 0;
-  let totalFiber = 0;
-  let totalNatrium = 0;
-  let totalAminoAcid = 0;
-  let totalVitaminD = 0;
-  let totalMagnesium = 0;
-  let totalIron = 0;
-
-  for (const mat of materials) {
-    const validMat = validMaterials.find((m) => m.id === mat.id);
-    if (!validMat) {
-      console.log(`Material with id ${mat.id} is invalid, skipping`);
-      continue;
-    }
-
-    const factor = (mat.quantity || 100) / 100; // default 100g jika quantity tidak ada
-
-    totalCalories += (validMat.calories || 0) * factor;
-    totalProtein += (validMat.protein || 0) * factor;
-    totalFat += (validMat.total_fat || 0) * factor;
-    totalSaturatedFat += (validMat.saturated_fat || 0) * factor;
-    totalTransFat += (validMat.trans_fat || 0) * factor;
-    totalCholesterol += (validMat.cholesterol || 0) * factor;
-    totalCarbohydrates += (validMat.carbohydrates || 0) * factor;
-    totalSugar += (validMat.sugar || 0) * factor;
-    totalFiber += (validMat.fiber || 0) * factor;
-    totalNatrium += (validMat.natrium || 0) * factor;
-    totalAminoAcid += (validMat.amino_acid || 0) * factor;
-    totalVitaminD += (validMat.vitamin_d || 0) * factor;
-    totalMagnesium += (validMat.magnesium || 0) * factor;
-    totalIron += (validMat.iron || 0) * factor;
-  }
-
   if (validMaterials.length !== materialIds.length) {
-    console.log("Invalid material IDs detected");
     if (uploadedFilePath) {
       await supabaseNutritionist.storage
-        .from('recipes-images')
+        .from("recipes-images")
         .remove([uploadedFilePath])
         .catch((removeError) => {
-          console.error("Failed to clean up uploaded file:", removeError.message);
+          console.error(
+            "Failed to clean up uploaded file:",
+            removeError.message
+          );
         });
     }
     return res.status(400).json({ error: "Invalid material IDs" });
   }
+
+  const materialsWithQuantity = materials.map((mat) => {
+    const material = validMaterials.find((m) => m.id === mat.id);
+    return {
+      material,
+      quantity: mat.quantity || 1, // Default quantity to 1 if not provided
+    };
+  });
+  const totalNutrients =
+    require("../utils/nutritionUtils").calculateRecipeNutrients(
+      materialsWithQuantity
+    );
 
   const recipe = {
     user_id: userId,
@@ -535,9 +477,8 @@ exports.createRecipe = async (req, res) => {
     category,
     steps: steps.join("\n"),
     created_at: new Date().toISOString(),
+    nutrients: totalNutrients,
   };
-
-  console.log("Inserting recipe:", recipe);
 
   const { data, error } = await supabaseNutritionist
     .from("recipes")
@@ -545,46 +486,43 @@ exports.createRecipe = async (req, res) => {
     .select()
     .single();
 
-  console.log("Insert recipe result:", { data, error });
-
   if (error) {
-    console.error("Failed to add recipe:", error);
     if (uploadedFilePath) {
       await supabaseNutritionist.storage
-        .from('recipes-images')
+        .from("recipes-images")
         .remove([uploadedFilePath])
         .catch((removeError) => {
-          console.error("Failed to clean up uploaded file:", removeError.message);
+          console.error(
+            "Failed to clean up uploaded file:",
+            removeError.message
+          );
         });
     }
-    return res.status(500).json({ error: "Failed to add recipe", details: error.message });
+    return res
+      .status(500)
+      .json({ error: "Failed to add recipe", details: error.message });
   }
-
-  console.log("Recipe inserted with ID:", data.id);
 
   const recipeMaterials = materials.map((mat) => ({
     recipe_id: data.id,
     material_id: mat.id,
     quantity: mat.quantity || 1,
   }));
-
-  console.log("Inserting recipe materials:", recipeMaterials);
-
   const { error: matInsertError } = await supabaseNutritionist
     .from("recipe_materials")
     .insert(recipeMaterials);
 
-  console.log("Insert recipe materials error:", matInsertError);
-
   if (matInsertError) {
-    console.error("Failed to add recipe materials, rolling back:", matInsertError);
     await supabaseNutritionist.from("recipes").delete().eq("id", data.id);
     if (uploadedFilePath) {
       await supabaseNutritionist.storage
-        .from('recipes-images')
+        .from("recipes-images")
         .remove([uploadedFilePath])
         .catch((removeError) => {
-          console.error("Failed to clean up uploaded file:", removeError.message);
+          console.error(
+            "Failed to clean up uploaded file:",
+            removeError.message
+          );
         });
     }
     return res.status(500).json({
@@ -593,253 +531,8 @@ exports.createRecipe = async (req, res) => {
     });
   }
 
-  console.log("Recipe materials added successfully");
-
-  return res.status(201).json({
-    message: "Recipe added successfully",
-    data,
-    totalNutrients: {
-      calories: totalCalories,
-      protein: totalProtein,
-      totalFat: totalFat,
-      saturatedFat: totalSaturatedFat,
-      transFat: totalTransFat,
-      cholesterol: totalCholesterol,
-      carbohydrates: totalCarbohydrates,
-      sugar: totalSugar,
-      fiber: totalFiber,
-      natrium: totalNatrium,
-      aminoAcid: totalAminoAcid,
-      vitaminD: totalVitaminD,
-      magnesium: totalMagnesium,
-      iron: totalIron,
-    },
-  });
+  res.status(201).json({ message: "Recipe added successfully", data });
 };
-
-
-// exports.createRecipe = async (req, res) => {
-//   const userId = req.user.id;
-//   let { name, description, category, materials, steps } = req.body;
-
-//   try {
-//     if (typeof materials === 'string') {
-//       materials = JSON.parse(materials);
-//     }
-//     if (typeof steps === 'string') {
-//       steps = JSON.parse(steps);
-//     }
-//   } catch (error) {
-//     return res.status(400).json({ error: "Invalid format for materials or steps", details: error.message });
-//   }
-
-//   if (!name || !category || !materials || !Array.isArray(materials) || !Array.isArray(steps)) {
-//     return res.status(400).json({ error: "Missing required fields" });
-//   }
-
-//   if (typeof name !== "string") {
-//     return res.status(400).json({ error: "Recipe name must be a string" });
-//   }
-
-//   const { data: existingRecipe, error: checkError } = await supabaseNutritionist
-//     .from("recipes")
-//     .select("id")
-//     .eq("user_id", userId)
-//     .eq("name", name)
-//     .single();
-
-//   if (checkError && checkError.code !== "PGRST116") {
-//     return res.status(500).json({ error: "Failed to check existing recipe", details: checkError.message });
-//   }
-
-//   if (existingRecipe) {
-//     return res.status(400).json({ error: "Recipe name already exists" });
-//   }
-
-//   let imageUrl = null;
-//   let uploadedFilePath = null;
-//   if (req.file) {
-//     const file = req.file;
-//     if (file.size > MAX_IMAGE_SIZE) {
-//       return res.status(400).json({ error: `Image size exceeds 5MB limit` });
-//     }
-
-//     const sanitizedRecipeName = sanitizeFilePath(name);
-//     const timestamp = Date.now();
-//     uploadedFilePath = `${sanitizedRecipeName}/${timestamp}_${file.originalname}`;
-
-//     const { data, error: uploadError } = await supabaseNutritionist.storage
-//       .from('recipes-images')
-//       .upload(uploadedFilePath, file.buffer, {
-//         contentType: file.mimetype,
-//         upsert: false,
-//       });
-
-//     if (uploadError) {
-//       return res.status(500).json({ error: "Failed to upload image", details: uploadError.message });
-//     }
-
-//     imageUrl = supabaseNutritionist.storage
-//       .from('recipes-images')
-//       .getPublicUrl(uploadedFilePath).data.publicUrl;
-//   }
-
-//   const { data: availableCategories, error: catError } =
-//     await supabaseResearcher.from("categories").select("name");
-//   if (catError) {
-//     if (uploadedFilePath) {
-//       await supabaseNutritionist.storage
-//         .from('recipes-images')
-//         .remove([uploadedFilePath])
-//         .catch((removeError) => {
-//           console.error("Failed to clean up uploaded file:", removeError.message);
-//         });
-//     }
-//     return res
-//       .status(500)
-//       .json({ error: "Failed to fetch categories", details: catError.message });
-//   }
-//   const availableCategoryNames = availableCategories.map((cat) => cat.name);
-//   if (!availableCategoryNames.includes(category)) {
-//     if (uploadedFilePath) {
-//       await supabaseNutritionist.storage
-//         .from('recipes-images')
-//         .remove([uploadedFilePath])
-//         .catch((removeError) => {
-//           console.error("Failed to clean up uploaded file:", removeError.message);
-//         });
-//     }
-//     return res.status(400).json({
-//       error: `Category ${category} does not exist`,
-//       availableCategories: availableCategoryNames,
-//     });
-//   }
-
-//   const materialIds = materials.map((mat) => mat.id);
-//   const { data: validMaterials, error: matError } = await supabaseResearcher
-//     .from("materials")
-//     .select("id, calories, protein, total_fat, saturated_fat, trans_fat, cholesterol, carbohydrates, sugar, fiber, natrium, amino_acid, vitamin_d, magnesium, iron")
-//     .in("id", materialIds);
-//   if (matError) {
-//     if (uploadedFilePath) {
-//       await supabaseNutritionist.storage
-//         .from('recipes-images')
-//         .remove([uploadedFilePath])
-//         .catch((removeError) => {
-//           console.error("Failed to clean up uploaded file:", removeError.message);
-//         });
-//     }
-//     return res.status(500).json({
-//       error: "Failed to validate materials",
-//       details: matError.message,
-//     });
-//   }
-//   let totalCalories = 0;
-//   let totalProtein = 0;
-//   let totalFat = 0;
-//   let totalSaturatedFat = 0;
-//   let totalTransFat = 0;
-//   let totalCholesterol = 0;
-//   let totalCarbohydrates = 0;
-//   let totalSugar = 0;
-//   let totalFiber = 0;
-//   let totalNatrium = 0;
-//   let totalAminoAcid = 0;
-//   let totalVitaminD = 0;
-//   let totalMagnesium = 0;
-//   let totalIron = 0;
-
-//   for (const mat of materials) {
-//     const validMat = validMaterials.find((m) => m.id === mat.id);
-//     if (!validMat) continue;
-
-//     const factor = (mat.quantity || 100) / 100; // default 100g jika quantity tidak ada
-
-//     totalCalories += (validMat.calories || 0) * factor;
-//     totalProtein += (validMat.protein || 0) * factor;
-//     totalFat += (validMat.total_fat || 0) * factor;
-//     totalSaturatedFat += (validMat.saturated_fat || 0) * factor;
-//     totalTransFat += (validMat.trans_fat || 0) * factor;
-//     totalCholesterol += (validMat.cholesterol || 0) * factor;
-//     totalCarbohydrates += (validMat.carbohydrates || 0) * factor;
-//     totalSugar += (validMat.sugar || 0) * factor;
-//     totalFiber += (validMat.fiber || 0) * factor;
-//     totalNatrium += (validMat.natrium || 0) * factor;
-//     totalAminoAcid += (validMat.amino_acid || 0) * factor;
-//     totalVitaminD += (validMat.vitamin_d || 0) * factor;
-//     totalMagnesium += (validMat.magnesium || 0) * factor;
-//     totalIron += (validMat.iron || 0) * factor;
-//   }
-
-//   if (validMaterials.length !== materialIds.length) {
-//     if (uploadedFilePath) {
-//       await supabaseNutritionist.storage
-//         .from('recipes-images')
-//         .remove([uploadedFilePath])
-//         .catch((removeError) => {
-//           console.error("Failed to clean up uploaded file:", removeError.message);
-//         });
-//     }
-//     return res.status(400).json({ error: "Invalid material IDs" });
-//   }
-
-//   const recipe = {
-//     user_id: userId,
-//     name,
-//     image_url: imageUrl,
-//     description,
-//     category,
-//     steps: steps.join("\n"),
-//     created_at: new Date().toISOString(),
-//   };
-
-//   const { data, error } = await supabaseNutritionist
-//     .from("recipes")
-//     .insert(recipe)
-//     .select()
-//     .single();
-
-//   if (error) {
-//     if (uploadedFilePath) {
-//       await supabaseNutritionist.storage
-//         .from('recipes-images')
-//         .remove([uploadedFilePath])
-//         .catch((removeError) => {
-//           console.error("Failed to clean up uploaded file:", removeError.message);
-//         });
-//     }
-//     return res
-//       .status(500)
-//       .json({ error: "Failed to add recipe", details: error.message });
-//   }
-
-//   const recipeMaterials = materials.map((mat) => ({
-//     recipe_id: data.id,
-//     material_id: mat.id,
-//     quantity: mat.quantity || 1,
-//   }));
-//   const { error: matInsertError } = await supabaseNutritionist
-//     .from("recipe_materials")
-//     .insert(recipeMaterials);
-
-//   if (matInsertError) {
-//     await supabaseNutritionist.from("recipes").delete().eq("id", data.id);
-//     if (uploadedFilePath) {
-//       await supabaseNutritionist.storage
-//         .from('recipes-images')
-//         .remove([uploadedFilePath])
-//         .catch((removeError) => {
-//           console.error("Failed to clean up uploaded file:", removeError.message);
-//         });
-//     }
-//     return res.status(500).json({
-//       error: "Failed to add recipe materials, recipe creation rolled back",
-//       details: matInsertError.message,
-//     });
-//   }
-
-//   res.status(201).json({ message: "Recipe added successfully", data });
-// };
 
 exports.updateRecipe = async (req, res) => {
   const userId = req.user.id;
@@ -859,10 +552,11 @@ exports.updateRecipe = async (req, res) => {
       .json({ error: `You can only edit recipes you created` });
   }
 
-  const { data: existingMaterials, error: matFetchError } = await supabaseNutritionist
-    .from("recipe_materials")
-    .select("material_id, quantity")
-    .eq("recipe_id", recipeId);
+  const { data: existingMaterials, error: matFetchError } =
+    await supabaseNutritionist
+      .from("recipe_materials")
+      .select("material_id, quantity")
+      .eq("recipe_id", recipeId);
 
   if (matFetchError) {
     return res.status(500).json({
@@ -872,27 +566,39 @@ exports.updateRecipe = async (req, res) => {
   }
 
   try {
-    if (typeof materials === 'string') {
+    if (typeof materials === "string") {
       materials = JSON.parse(materials);
     }
-    if (typeof steps === 'string') {
+    if (typeof steps === "string") {
       steps = JSON.parse(steps);
     }
   } catch (error) {
-    return res.status(400).json({ error: "Invalid format for materials or steps", details: error.message });
+    return res
+      .status(400)
+      .json({
+        error: "Invalid format for materials or steps",
+        details: error.message,
+      });
   }
 
   const updatedName = name || existingRecipe.name;
-  const updatedDescription = description !== undefined ? description : existingRecipe.description;
+  const updatedDescription =
+    description !== undefined ? description : existingRecipe.description;
   const updatedCategory = category || existingRecipe.category;
-  const updatedMaterials = materials && Array.isArray(materials) ? materials : existingMaterials.map(mat => ({
-    id: mat.material_id,
-    quantity: mat.quantity,
-  }));
-  const updatedSteps = steps && Array.isArray(steps) ? steps : existingRecipe.steps.split("\n");
+  const updatedMaterials =
+    materials && Array.isArray(materials)
+      ? materials
+      : existingMaterials.map((mat) => ({
+          id: mat.material_id,
+          quantity: mat.quantity,
+        }));
+  const updatedSteps =
+    steps && Array.isArray(steps) ? steps : existingRecipe.steps.split("\n");
 
   if (typeof updatedName !== "string" || updatedName.trim() === "") {
-    return res.status(400).json({ error: "Recipe name must be a non-empty string" });
+    return res
+      .status(400)
+      .json({ error: "Recipe name must be a non-empty string" });
   }
 
   if (!Array.isArray(updatedMaterials)) {
@@ -909,7 +615,10 @@ exports.updateRecipe = async (req, res) => {
     if (catError) {
       return res
         .status(500)
-        .json({ error: "Failed to fetch categories", details: catError.message });
+        .json({
+          error: "Failed to fetch categories",
+          details: catError.message,
+        });
     }
     const availableCategoryNames = availableCategories.map((cat) => cat.name);
     if (!availableCategoryNames.includes(updatedCategory)) {
@@ -920,11 +629,12 @@ exports.updateRecipe = async (req, res) => {
     }
   }
 
+  let totalNutrients = {};
   if (materials && Array.isArray(materials)) {
     const materialIds = materials.map((mat) => mat.id);
     const { data: validMaterials, error: matError } = await supabaseResearcher
       .from("materials")
-      .select("id")
+      .select("*")
       .in("id", materialIds);
     if (matError) {
       return res.status(500).json({
@@ -935,6 +645,42 @@ exports.updateRecipe = async (req, res) => {
     if (validMaterials.length !== materialIds.length) {
       return res.status(400).json({ error: "Invalid material IDs" });
     }
+
+    const materialsWithQuantity = materials.map((mat) => {
+      const material = validMaterials.find((m) => m.id === mat.id);
+      return {
+        material,
+        quantity: mat.quantity || 1,
+      };
+    });
+    totalNutrients =
+      require("../utils/nutritionUtils").calculateRecipeNutrients(
+        materialsWithQuantity
+      );
+  } else {
+    const materialIds = existingMaterials.map((mat) => mat.material_id);
+    const { data: validMaterials, error: matError } = await supabaseResearcher
+      .from("materials")
+      .select("*")
+      .in("id", materialIds);
+    if (matError) {
+      return res.status(500).json({
+        error: "Failed to fetch materials for nutrition calculation",
+        details: matError.message,
+      });
+    }
+
+    const materialsWithQuantity = existingMaterials.map((mat) => {
+      const material = validMaterials.find((m) => m.id === mat.material_id);
+      return {
+        material,
+        quantity: mat.quantity || 1,
+      };
+    });
+    totalNutrients =
+      require("../utils/nutritionUtils").calculateRecipeNutrients(
+        materialsWithQuantity
+      );
   }
 
   let imageUrl = existingRecipe.image_url;
@@ -946,10 +692,11 @@ exports.updateRecipe = async (req, res) => {
     }
 
     if (imageUrl) {
-      const pathStartIndex = imageUrl.indexOf('recipes-images/') + 'recipes-images/'.length;
+      const pathStartIndex =
+        imageUrl.indexOf("recipes-images/") + "recipes-images/".length;
       const oldPath = imageUrl.substring(pathStartIndex);
       const { error: removeError } = await supabaseNutritionist.storage
-        .from('recipes-images')
+        .from("recipes-images")
         .remove([oldPath]);
 
       if (removeError) {
@@ -965,18 +712,23 @@ exports.updateRecipe = async (req, res) => {
     uploadedFilePath = `${sanitizedRecipeName}/${timestamp}_${file.originalname}`;
 
     const { data, error: uploadError } = await supabaseNutritionist.storage
-      .from('recipes-images')
+      .from("recipes-images")
       .upload(uploadedFilePath, file.buffer, {
         contentType: file.mimetype,
         upsert: false,
       });
 
     if (uploadError) {
-      return res.status(500).json({ error: "Failed to upload image", details: uploadError.message });
+      return res
+        .status(500)
+        .json({
+          error: "Failed to upload image",
+          details: uploadError.message,
+        });
     }
 
     imageUrl = supabaseNutritionist.storage
-      .from('recipes-images')
+      .from("recipes-images")
       .getPublicUrl(uploadedFilePath).data.publicUrl;
   }
 
@@ -988,6 +740,7 @@ exports.updateRecipe = async (req, res) => {
       description: updatedDescription,
       category: updatedCategory,
       steps: updatedSteps.join("\n"),
+      nutrients: totalNutrients,
     })
     .eq("id", recipeId)
     .eq("user_id", userId)
@@ -995,6 +748,17 @@ exports.updateRecipe = async (req, res) => {
     .single();
 
   if (updateError) {
+    if (uploadedFilePath) {
+      await supabaseNutritionist.storage
+        .from("recipes-images")
+        .remove([uploadedFilePath])
+        .catch((removeError) => {
+          console.error(
+            "Failed to clean up uploaded file:",
+            removeError.message
+          );
+        });
+    }
     return res
       .status(500)
       .json({ error: "Failed to update recipe", details: updateError.message });
@@ -1016,6 +780,17 @@ exports.updateRecipe = async (req, res) => {
       .insert(recipeMaterials);
 
     if (matInsertError) {
+      if (uploadedFilePath) {
+        await supabaseNutritionist.storage
+          .from("recipes-images")
+          .remove([uploadedFilePath])
+          .catch((removeError) => {
+            console.error(
+              "Failed to clean up uploaded file:",
+              removeError.message
+            );
+          });
+      }
       return res.status(500).json({
         error: "Failed to update recipe materials",
         details: matInsertError.message,
@@ -1044,10 +819,11 @@ exports.deleteRecipe = async (req, res) => {
   }
 
   if (recipe.image_url) {
-    const pathStartIndex = recipe.image_url.indexOf('recipes-images/') + 'recipes-images/'.length;
+    const pathStartIndex =
+      recipe.image_url.indexOf("recipes-images/") + "recipes-images/".length;
     const oldPath = recipe.image_url.substring(pathStartIndex);
     const { error: removeError } = await supabaseNutritionist.storage
-      .from('recipes-images')
+      .from("recipes-images")
       .remove([oldPath]);
 
     if (removeError) {
