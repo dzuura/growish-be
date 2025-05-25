@@ -50,13 +50,16 @@ exports.getRecipes = async (req, res) => {
   const { data: recipes, count, error } = await recipeQuery;
 
   if (error) {
-    return res
-      .status(500)
-      .json({ error: "Failed to fetch recipes", details: error.message });
+    return res.status(500).json({
+      error: "Failed to fetch recipes",
+      details: error.message,
+    });
   }
 
   if (!recipes || recipes.length === 0) {
-    return res.status(404).json({ error: "No recipes found" });
+    return res.status(404).json({ 
+      error: "No recipes found" 
+    });
   }
 
   let filteredData = recipes;
@@ -134,13 +137,16 @@ exports.getMyRecipes = async (req, res) => {
   const { data: recipes, count, error } = await recipeQuery;
 
   if (error) {
-    return res
-      .status(500)
-      .json({ error: "Failed to fetch recipes", details: error.message });
+    return res.status(500).json({
+      error: "Failed to fetch recipes",
+      details: error.message,
+    });
   }
 
   if (!recipes || recipes.length === 0) {
-    return res.status(404).json({ error: "No recipes found" });
+    return res.status(404).json({ 
+      error: "No recipes found" 
+    });
   }
 
   let filteredData = recipes;
@@ -172,9 +178,10 @@ exports.getMyRecipes = async (req, res) => {
     .in("id", materialIds);
 
   if (matError) {
-    return res
-      .status(500)
-      .json({ error: "Failed to fetch materials", details: matError.message });
+    return res.status(500).json({
+      error: "Failed to fetch materials",
+      details: matError.message,
+    });
   }
 
   const materialsMap = Object.fromEntries(materialsData.map((m) => [m.id, m]));
@@ -258,13 +265,16 @@ exports.getRecipeById = async (req, res) => {
     .single();
 
   if (error) {
-    return res
-      .status(500)
-      .json({ error: "Failed to fetch recipe", details: error.message });
+    return res.status(500).json({
+      error: "Failed to fetch recipe",
+      details: error.message,
+    });
   }
 
   if (!recipe) {
-    return res.status(404).json({ error: "Recipe not found" });
+    return res.status(404).json({ 
+      error: "Recipe not found" 
+    });
   }
 
   const materialIds = recipe.recipe_materials.map((rm) => rm.material_id);
@@ -274,26 +284,29 @@ exports.getRecipeById = async (req, res) => {
     .in("id", materialIds);
 
   if (matError) {
-    return res
-      .status(500)
-      .json({ error: "Failed to fetch materials", details: matError.message });
+    return res.status(500).json({
+      error: "Failed to fetch materials",
+      details: matError.message,
+    });
   }
 
   const materialsMap = Object.fromEntries(
     materialsData.map((m) => [m.id, m.name])
   );
   const enrichedMaterials = recipe.recipe_materials.map((rm) => ({
-    quantity: rm.quantity,
     material: materialsMap[rm.material_id] || null,
+    quantity: rm.quantity,
   }));
 
-  const { recipe_materials, created_at, ...rest } = recipe;
+  const { recipe_materials, ...rest } = recipe;
   const formattedData = {
     ...rest,
     recipe_materials: enrichedMaterials,
   };
 
-  res.status(200).json({ message: "Recipe details", data: formattedData });
+  res.status(200).json({ 
+    message: "Recipe details", data: formattedData 
+  });
 };
 
 exports.createRecipe = async (req, res) => {
@@ -308,12 +321,10 @@ exports.createRecipe = async (req, res) => {
       steps = JSON.parse(steps);
     }
   } catch (error) {
-    return res
-      .status(400)
-      .json({
-        error: "Invalid format for materials or steps",
-        details: error.message,
-      });
+    return res.status(400).json({
+      error: "Invalid format for materials or steps",
+      details: error.message,
+    });
   }
 
   if (
@@ -323,11 +334,15 @@ exports.createRecipe = async (req, res) => {
     !Array.isArray(materials) ||
     !Array.isArray(steps)
   ) {
-    return res.status(400).json({ error: "Missing required fields" });
+    return res.status(400).json({ 
+      error: "Missing required fields" 
+    });
   }
 
   if (typeof name !== "string") {
-    return res.status(400).json({ error: "Recipe name must be a string" });
+    return res.status(400).json({ 
+      error: "Recipe name must be a string" 
+    });
   }
 
   const { data: existingRecipe, error: checkError } = await supabaseNutritionist
@@ -338,16 +353,16 @@ exports.createRecipe = async (req, res) => {
     .single();
 
   if (checkError && checkError.code !== "PGRST116") {
-    return res
-      .status(500)
-      .json({
-        error: "Failed to check existing recipe",
-        details: checkError.message,
-      });
+    return res.status(500).json({
+      error: "Failed to check existing recipe",
+      details: checkError.message,
+    });
   }
 
   if (existingRecipe) {
-    return res.status(400).json({ error: "Recipe name already exists" });
+    return res.status(400).json({ 
+      error: "Recipe name already exists" 
+    });
   }
 
   let imageUrl = null;
@@ -355,7 +370,9 @@ exports.createRecipe = async (req, res) => {
   if (req.file) {
     const file = req.file;
     if (file.size > MAX_IMAGE_SIZE) {
-      return res.status(400).json({ error: `Image size exceeds 5MB limit` });
+      return res.status(400).json({ 
+        error: `Image size exceeds 5MB limit` 
+      });
     }
 
     const sanitizedRecipeName = sanitizeFilePath(name);
@@ -370,12 +387,10 @@ exports.createRecipe = async (req, res) => {
       });
 
     if (uploadError) {
-      return res
-        .status(500)
-        .json({
-          error: "Failed to upload image",
-          details: uploadError.message,
-        });
+      return res.status(500).json({
+        error: "Failed to upload image",
+        details: uploadError.message,
+      });
     }
 
     imageUrl = supabaseNutritionist.storage
@@ -397,9 +412,10 @@ exports.createRecipe = async (req, res) => {
           );
         });
     }
-    return res
-      .status(500)
-      .json({ error: "Failed to fetch categories", details: catError.message });
+    return res.status(500).json({
+      error: "Failed to fetch categories",
+      details: catError.message,
+    });
   }
   const availableCategoryNames = availableCategories.map((cat) => cat.name);
   if (!availableCategoryNames.includes(category)) {
@@ -454,7 +470,9 @@ exports.createRecipe = async (req, res) => {
           );
         });
     }
-    return res.status(400).json({ error: "Invalid material IDs" });
+    return res.status(400).json({ 
+      error: "Invalid material IDs" 
+    });
   }
 
   const materialsWithQuantity = materials.map((mat) => {
@@ -498,9 +516,10 @@ exports.createRecipe = async (req, res) => {
           );
         });
     }
-    return res
-      .status(500)
-      .json({ error: "Failed to add recipe", details: error.message });
+    return res.status(500).json({
+      error: "Failed to add recipe",
+      details: error.message,
+    });
   }
 
   const recipeMaterials = materials.map((mat) => ({
@@ -531,7 +550,9 @@ exports.createRecipe = async (req, res) => {
     });
   }
 
-  res.status(201).json({ message: "Recipe added successfully", data });
+  res.status(201).json({ 
+    message: "Recipe added successfully", data 
+  });
 };
 
 exports.updateRecipe = async (req, res) => {
@@ -546,10 +567,17 @@ exports.updateRecipe = async (req, res) => {
     .eq("user_id", userId)
     .single();
 
-  if (findError || !existingRecipe) {
-    return res
-      .status(403)
-      .json({ error: `You can only edit recipes you created` });
+  if (findError) {
+    return res.status(500).json({
+      error: "Failed to fetch recipe",
+      details: findError.message,
+    });
+  }
+
+  if (!existingRecipe) {
+    return res.status(403).json({ 
+        error: `You can only edit recipes you created` 
+      });
   }
 
   const { data: existingMaterials, error: matFetchError } =
@@ -573,12 +601,10 @@ exports.updateRecipe = async (req, res) => {
       steps = JSON.parse(steps);
     }
   } catch (error) {
-    return res
-      .status(400)
-      .json({
-        error: "Invalid format for materials or steps",
-        details: error.message,
-      });
+    return res.status(400).json({
+      error: "Invalid format for materials or steps",
+      details: error.message,
+    });
   }
 
   const updatedName = name || existingRecipe.name;
@@ -596,29 +622,31 @@ exports.updateRecipe = async (req, res) => {
     steps && Array.isArray(steps) ? steps : existingRecipe.steps.split("\n");
 
   if (typeof updatedName !== "string" || updatedName.trim() === "") {
-    return res
-      .status(400)
-      .json({ error: "Recipe name must be a non-empty string" });
+    return res.status(400).json({ 
+      error: "Recipe name must be a non-empty string" 
+    });
   }
 
   if (!Array.isArray(updatedMaterials)) {
-    return res.status(400).json({ error: "Materials must be an array" });
+    return res.status(400).json({ 
+      error: "Materials must be an array" 
+    });
   }
 
   if (!Array.isArray(updatedSteps)) {
-    return res.status(400).json({ error: "Steps must be an array" });
+    return res.status(400).json({ 
+      error: "Steps must be an array" 
+    });
   }
 
   if (updatedCategory) {
     const { data: availableCategories, error: catError } =
       await supabaseResearcher.from("categories").select("name");
     if (catError) {
-      return res
-        .status(500)
-        .json({
-          error: "Failed to fetch categories",
-          details: catError.message,
-        });
+      return res.status(500).json({
+        error: "Failed to fetch categories",
+        details: catError.message,
+      });
     }
     const availableCategoryNames = availableCategories.map((cat) => cat.name);
     if (!availableCategoryNames.includes(updatedCategory)) {
@@ -643,7 +671,9 @@ exports.updateRecipe = async (req, res) => {
       });
     }
     if (validMaterials.length !== materialIds.length) {
-      return res.status(400).json({ error: "Invalid material IDs" });
+      return res.status(400).json({ 
+        error: "Invalid material IDs" 
+      });
     }
 
     const materialsWithQuantity = materials.map((mat) => {
@@ -688,7 +718,9 @@ exports.updateRecipe = async (req, res) => {
   if (req.file) {
     const file = req.file;
     if (file.size > MAX_IMAGE_SIZE) {
-      return res.status(400).json({ error: `Image size exceeds 5MB limit` });
+      return res.status(400).json({ 
+        error: `Image size exceeds 5MB limit` 
+      });
     }
 
     if (imageUrl) {
@@ -719,12 +751,10 @@ exports.updateRecipe = async (req, res) => {
       });
 
     if (uploadError) {
-      return res
-        .status(500)
-        .json({
-          error: "Failed to upload image",
-          details: uploadError.message,
-        });
+      return res.status(500).json({
+        error: "Failed to upload image",
+        details: uploadError.message,
+      });
     }
 
     imageUrl = supabaseNutritionist.storage
@@ -759,9 +789,10 @@ exports.updateRecipe = async (req, res) => {
           );
         });
     }
-    return res
-      .status(500)
-      .json({ error: "Failed to update recipe", details: updateError.message });
+    return res.status(500).json({
+      error: "Failed to update recipe",
+      details: updateError.message,
+    });
   }
 
   if (materials && Array.isArray(materials)) {
@@ -798,7 +829,9 @@ exports.updateRecipe = async (req, res) => {
     }
   }
 
-  res.status(200).json({ message: "Recipe updated successfully", data });
+  res.status(200).json({ 
+    message: "Recipe updated successfully", data 
+  });
 };
 
 exports.deleteRecipe = async (req, res) => {
@@ -812,10 +845,17 @@ exports.deleteRecipe = async (req, res) => {
     .eq("user_id", userId)
     .single();
 
-  if (findError || !recipe) {
-    return res
-      .status(403)
-      .json({ error: `You can only delete recipes you created` });
+  if (findError) {
+    return res.status(500).json({
+      error: "Failed to fetch recipe",
+      details: findError.message,
+    });
+  }
+
+  if (!recipe) {
+    return res.status(403).json({ 
+      error: `You can only delete recipes you created` 
+    });
   }
 
   if (recipe.image_url) {
@@ -845,10 +885,13 @@ exports.deleteRecipe = async (req, res) => {
     .eq("id", recipeId);
 
   if (deleteError) {
-    return res
-      .status(500)
-      .json({ error: "Failed to delete recipe", details: deleteError.message });
+    return res.status(500).json({
+      error: "Failed to delete recipe",
+      details: deleteError.message,
+    });
   }
 
-  res.status(200).json({ message: "Recipe deleted successfully" });
+  res.status(200).json({ 
+    message: "Recipe deleted successfully" 
+  });
 };

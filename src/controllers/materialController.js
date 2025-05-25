@@ -36,7 +36,14 @@ exports.getMaterials = async (req, res) => {
 
   let query = supabaseResearcher.from("materials").select(
     `
-      *,
+      id,
+      user_id,
+      name,
+      image_url,
+      calories,
+      protein,
+      carbohydrates,
+      sugar,
       material_categories (
         category_id,
         categories (
@@ -54,13 +61,16 @@ exports.getMaterials = async (req, res) => {
   const { data, error, count } = await query;
 
   if (error) {
-    return res
-      .status(500)
-      .json({ error: "Failed to fetch materials", details: error.message });
+    return res.status(500).json({
+      error: "Failed to fetch materials",
+      details: error.message,
+    });
   }
 
   if (!data || data.length === 0) {
-    return res.status(404).json({ error: "No materials found" });
+    return res.status(404).json({ 
+      error: "No materials found" 
+    });
   }
 
   let filteredData = data;
@@ -88,9 +98,15 @@ exports.getMaterials = async (req, res) => {
         ?.map((mc) => mc.categories?.name)
         .filter(Boolean) || [];
 
-    const { material_categories, ...rest } = item;
     return {
-      ...rest,
+      id: item.id,
+      user_id: item.user_id,
+      name: item.name,
+      image_url: item.image_url,
+      calories: item.calories,
+      protein: item.protein,
+      carbohydrates: item.carbohydrates,
+      sugar: item.sugar,
       categories: categoryNames,
     };
   });
@@ -160,13 +176,16 @@ exports.getMyMaterials = async (req, res) => {
   const { data, error, count } = await query;
 
   if (error) {
-    return res
-      .status(500)
-      .json({ error: "Failed to fetch materials", details: error.message });
+    return res.status(500).json({
+      error: "Failed to fetch materials",
+      details: error.message,
+    });
   }
 
   if (!data || data.length === 0) {
-    return res.status(404).json({ error: "No materials found" });
+    return res.status(404).json({ 
+      error: "No materials found" 
+    });
   }
 
   let filteredData = data;
@@ -220,16 +239,24 @@ exports.getMaterialStats = async (req, res) => {
     .from("materials")
     .select("*", { count: "exact" });
 
-  if (totalError)
-    return res.status(500).json({ error: "Failed to fetch total materials" });
+  if (totalError) {
+    return res.status(500).json({
+      error: "Failed to fetch total materials",
+      details: totalError.message,
+    });
+  }
 
   const { data: myMaterials, error: myError } = await supabaseResearcher
     .from("materials")
     .select("*", { count: "exact" })
     .eq("user_id", userId);
 
-  if (myError)
-    return res.status(500).json({ error: "Failed to fetch my materials" });
+  if (myError) {
+    return res.status(500).json({
+      error: "Failed to fetch my materials",
+      details: myError.message,
+    });
+  }
 
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
@@ -238,15 +265,23 @@ exports.getMaterialStats = async (req, res) => {
     .select("*", { count: "exact" })
     .gte("created_at", sevenDaysAgo.toISOString());
 
-  if (newError)
-    return res.status(500).json({ error: "Failed to fetch new materials" });
+  if (newError) {
+    return res.status(500).json({
+      error: "Failed to fetch new materials",
+      details: newError.message,
+    });
+  }
 
   const { data: categories, error: catError } = await supabaseResearcher
     .from("categories")
     .select("name, material_categories!inner(material_id)");
 
-  if (catError)
-    return res.status(500).json({ error: "Failed to fetch categories" });
+  if (catError) {
+    return res.status(500).json({
+      error: "Failed to fetch categories",
+      details: catError.message,
+    });
+  }
 
   const categoryStats = categories.map((cat) => ({
     name: cat.name,
@@ -259,8 +294,12 @@ exports.getMaterialStats = async (req, res) => {
       .select("material_category")
       .not("material_category", "is", null);
 
-  if (matCatError)
-    return res.status(500).json({ error: "Failed to fetch material category" });
+  if (matCatError) {
+    return res.status(500).json({
+      error: "Failed to fetch material category",
+      details: matCatError.message,
+    });
+  }
 
   const allCategories = MaterialCategory.flatMap(
     (mc) => mc.material_category || []
@@ -299,13 +338,16 @@ exports.getMaterialById = async (req, res) => {
     .single();
 
   if (error) {
-    return res
-      .status(500)
-      .json({ error: "Failed to fetch material", details: error.message });
+    return res.status(500).json({
+      error: "Failed to fetch material",
+      details: error.message,
+    });
   }
 
   if (!data) {
-    return res.status(404).json({ error: "Material not found" });
+    return res.status(404).json({ 
+      error: "Material not found" 
+    });
   }
 
   const categoryNames =
@@ -313,7 +355,7 @@ exports.getMaterialById = async (req, res) => {
       ?.map((mc) => mc.categories?.name)
       .filter(Boolean) || [];
 
-  const { material_categories, ...rest } = data;
+  const { material_categories, created_at, ...rest } = data;
   const formattedData = {
     ...rest,
     categories: categoryNames,
@@ -350,7 +392,9 @@ exports.createMaterial = async (req, res) => {
   } = req.body;
 
   if (!name) {
-    return res.status(400).json({ error: "Material name is required" });
+    return res.status(400).json({ 
+      error: "Material name is required" 
+    });
   }
 
   let imageUrl = null;
@@ -358,7 +402,9 @@ exports.createMaterial = async (req, res) => {
   if (req.file) {
     const file = req.file;
     if (file.size > MAX_IMAGE_SIZE) {
-      return res.status(400).json({ error: `Image size exceeds 5MB limit` });
+      return res.status(400).json({ 
+        error: `Image size exceeds 5MB limit` 
+      });
     }
 
     const sanitizedName = sanitizeFilePath(name);
@@ -366,18 +412,21 @@ exports.createMaterial = async (req, res) => {
     uploadedFilePath = `${sanitizedName}/${timestamp}_${file.originalname}`;
 
     const { data, error: uploadError } = await supabaseResearcher.storage
-      .from('materials-images')
+      .from("materials-images")
       .upload(uploadedFilePath, file.buffer, {
         contentType: file.mimetype,
         upsert: false,
       });
 
     if (uploadError) {
-      return res.status(500).json({ error: "Failed to upload image", details: uploadError.message });
+      return res.status(500).json({
+        error: "Failed to upload image",
+        details: uploadError.message,
+      });
     }
 
     imageUrl = supabaseResearcher.storage
-      .from('materials-images')
+      .from("materials-images")
       .getPublicUrl(uploadedFilePath).data.publicUrl;
   }
 
@@ -414,18 +463,24 @@ exports.createMaterial = async (req, res) => {
   if (error) {
     if (uploadedFilePath) {
       await supabaseResearcher.storage
-        .from('materials-images')
+        .from("materials-images")
         .remove([uploadedFilePath])
         .catch((removeError) => {
-          console.error("Failed to clean up uploaded file:", removeError.message);
+          console.error(
+            "Failed to clean up uploaded file:",
+            removeError.message
+          );
         });
     }
     if (error.code === "23505") {
-      return res.status(400).json({ error: "Material name already exists" });
+      return res.status(400).json({ 
+        error: "Material name already exists" 
+      });
     }
-    return res
-      .status(500)
-      .json({ error: "Failed to add material", details: error.message });
+    return res.status(500).json({
+      error: "Failed to add material",
+      details: error.message,
+    });
   }
 
   const categoryIds = await materialService.categorizeMaterial(material);
@@ -433,15 +488,19 @@ exports.createMaterial = async (req, res) => {
     await supabaseResearcher.from("materials").delete().eq("id", data.id);
     if (uploadedFilePath) {
       await supabaseResearcher.storage
-        .from('materials-images')
+        .from("materials-images")
         .remove([uploadedFilePath])
         .catch((removeError) => {
-          console.error("Failed to clean up uploaded file:", removeError.message);
+          console.error(
+            "Failed to clean up uploaded file:",
+            removeError.message
+          );
         });
     }
     return res.status(400).json({
       error: "No matching categories found for the material",
-      details: "Please ensure categories with appropriate nutrient ranges exist",
+      details:
+        "Please ensure categories with appropriate nutrient ranges exist",
     });
   }
 
@@ -457,10 +516,13 @@ exports.createMaterial = async (req, res) => {
     await supabaseResearcher.from("materials").delete().eq("id", data.id);
     if (uploadedFilePath) {
       await supabaseResearcher.storage
-        .from('materials-images')
+        .from("materials-images")
         .remove([uploadedFilePath])
         .catch((removeError) => {
-          console.error("Failed to clean up uploaded file:", removeError.message);
+          console.error(
+            "Failed to clean up uploaded file:",
+            removeError.message
+          );
         });
     }
     return res.status(500).json({
@@ -469,7 +531,9 @@ exports.createMaterial = async (req, res) => {
     });
   }
 
-  res.status(201).json({ message: "Material added successfully", data });
+  res.status(201).json({ 
+    message: "Material added successfully", data 
+  });
 };
 
 exports.updateMaterial = async (req, res) => {
@@ -498,7 +562,9 @@ exports.updateMaterial = async (req, res) => {
   } = req.body;
 
   if (name && typeof name !== "string") {
-    return res.status(400).json({ error: "Material name must be a string" });
+    return res.status(400).json({ 
+      error: "Material name must be a string" 
+    });
   }
 
   const { data: material, error: checkError } = await supabaseResearcher
@@ -507,12 +573,23 @@ exports.updateMaterial = async (req, res) => {
     .eq("id", id)
     .single();
 
-  if (checkError || !material) {
-    return res.status(404).json({ error: `Material with ID ${id} not found` });
+  if (checkError) {
+    return res.status(500).json({
+      error: "Failed to fetch material",
+      details: checkError.message,
+    });
+  }
+
+  if (!material) {
+    return res.status(404).json({ 
+      error: `Material with ID ${id} not found` 
+    });
   }
 
   if (material.user_id !== userId) {
-    return res.status(403).json({ error: "You can only edit materials you created" });
+    return res.status(403).json({ 
+      error: "You can only edit materials you created" 
+    });
   }
 
   let imageUrl = material.image_url;
@@ -520,14 +597,16 @@ exports.updateMaterial = async (req, res) => {
   if (req.file) {
     const file = req.file;
     if (file.size > MAX_IMAGE_SIZE) {
-      return res.status(400).json({ error: `Image size exceeds 5MB limit` });
+      return res.status(400).json({ 
+        error: `Image size exceeds 5MB limit` 
+      });
     }
 
     if (imageUrl) {
-      const pathStartIndex = imageUrl.indexOf('materials-images/') + 'materials-images/'.length;
+      const pathStartIndex = imageUrl.indexOf("materials-images/") + "materials-images/".length;
       const oldPath = imageUrl.substring(pathStartIndex);
       const { error: removeError } = await supabaseResearcher.storage
-        .from('materials-images')
+        .from("materials-images")
         .remove([oldPath]);
 
       if (removeError) {
@@ -543,18 +622,21 @@ exports.updateMaterial = async (req, res) => {
     uploadedFilePath = `${sanitizedName}/${timestamp}_${file.originalname}`;
 
     const { data, error: uploadError } = await supabaseResearcher.storage
-      .from('materials-images')
+      .from("materials-images")
       .upload(uploadedFilePath, file.buffer, {
         contentType: file.mimetype,
         upsert: false,
       });
 
     if (uploadError) {
-      return res.status(500).json({ error: "Failed to upload image", details: uploadError.message });
+      return res.status(500).json({
+        error: "Failed to upload image",
+        details: uploadError.message,
+      });
     }
 
     imageUrl = supabaseResearcher.storage
-      .from('materials-images')
+      .from("materials-images")
       .getPublicUrl(uploadedFilePath).data.publicUrl;
   }
 
@@ -588,19 +670,27 @@ exports.updateMaterial = async (req, res) => {
     .select()
     .single();
 
-  if (error || !data) {
+  if (error) {
     if (uploadedFilePath) {
       await supabaseResearcher.storage
-        .from('materials-images')
+        .from("materials-images")
         .remove([uploadedFilePath])
         .catch((removeError) => {
-          console.error("Failed to clean up uploaded file:", removeError.message);
+          console.error(
+            "Failed to clean up uploaded file:",
+            removeError.message
+          );
         });
     }
-    if (error?.code === "23505") {
-      return res.status(400).json({ error: "Material name already exists" });
+    if (error.code === "23505") {
+      return res.status(400).json({ 
+        error: "Material name already exists" 
+      });
     }
-    return res.status(404).json({ error: `Material with ID ${id} not found` });
+    return res.status(500).json({
+      error: "Failed to update material",
+      details: error.message,
+    });
   }
 
   await supabaseResearcher
@@ -611,10 +701,13 @@ exports.updateMaterial = async (req, res) => {
   if (!categoryIds || categoryIds.length === 0) {
     if (uploadedFilePath) {
       await supabaseResearcher.storage
-        .from('materials-images')
+        .from("materials-images")
         .remove([uploadedFilePath])
         .catch((removeError) => {
-          console.error("Failed to clean up uploaded file:", removeError.message);
+          console.error(
+            "Failed to clean up uploaded file:",
+            removeError.message
+          );
         });
     }
     return res.status(400).json({
@@ -634,10 +727,13 @@ exports.updateMaterial = async (req, res) => {
   if (catError) {
     if (uploadedFilePath) {
       await supabaseResearcher.storage
-        .from('materials-images')
+        .from("materials-images")
         .remove([uploadedFilePath])
         .catch((removeError) => {
-          console.error("Failed to clean up uploaded file:", removeError.message);
+          console.error(
+            "Failed to clean up uploaded file:",
+            removeError.message
+          );
         });
     }
     return res.status(500).json({
@@ -646,7 +742,9 @@ exports.updateMaterial = async (req, res) => {
     });
   }
 
-  res.status(200).json({ message: "Material updated successfully", data });
+  res.status(200).json({ 
+    message: "Material updated successfully", data 
+  });
 };
 
 exports.deleteMaterial = async (req, res) => {
@@ -659,19 +757,30 @@ exports.deleteMaterial = async (req, res) => {
     .eq("id", id)
     .single();
 
-  if (checkError || !material) {
-    return res.status(404).json({ error: `Material with ID ${id} not found` });
+  if (checkError) {
+    return res.status(500).json({
+      error: "Failed to fetch material",
+      details: checkError.message,
+    });
+  }
+
+  if (!material) {
+    return res.status(404).json({ 
+      error: `Material with ID ${id} not found` 
+    });
   }
 
   if (material.user_id !== userId) {
-    return res.status(403).json({ error: "You can only delete materials you created" });
+    return res.status(403).json({ 
+      error: "You can only delete materials you created" 
+    });
   }
 
   if (material.image_url) {
-    const pathStartIndex = material.image_url.indexOf('materials-images/') + 'materials-images/'.length;
+    const pathStartIndex = material.image_url.indexOf("materials-images/") + "materials-images/".length;
     const oldPath = material.image_url.substring(pathStartIndex);
     const { error: removeError } = await supabaseResearcher.storage
-      .from('materials-images')
+      .from("materials-images")
       .remove([oldPath]);
 
     if (removeError) {
@@ -688,9 +797,10 @@ exports.deleteMaterial = async (req, res) => {
     .eq("id", id);
 
   if (deleteError) {
-    return res
-      .status(500)
-      .json({ error: "Failed to delete material", details: deleteError.message });
+    return res.status(500).json({
+      error: "Failed to delete material",
+      details: deleteError.message,
+    });
   }
 
   const { error: syncError } = await supabaseNutritionist
@@ -705,5 +815,7 @@ exports.deleteMaterial = async (req, res) => {
     });
   }
 
-  res.status(200).json({ message: "Material deleted successfully" });
+  res.status(200).json({ 
+    message: "Material deleted successfully" 
+  });
 };
