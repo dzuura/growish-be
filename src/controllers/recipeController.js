@@ -1,6 +1,7 @@
 const supabaseNutritionist = require("../config/supabase-nutritionist");
 const supabaseResearcher = require("../config/supabase-researcher");
 const { sanitizeFilePath } = require("../utils/fileUtils");
+const { toCamelCase } = require("../utils/camelCaseUtils");
 
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
 
@@ -57,9 +58,7 @@ exports.getRecipes = async (req, res) => {
   }
 
   if (!recipes || recipes.length === 0) {
-    return res.status(404).json({ 
-      error: "No recipes found" 
-    });
+    return res.status(404).json({ error: "No recipes found" });
   }
 
   let filteredData = recipes;
@@ -79,9 +78,20 @@ exports.getRecipes = async (req, res) => {
   const total = filteredData.length;
   const paginatedData = filteredData.slice(offset, offset + Number(limit));
 
+  const mappedData = paginatedData.map((item) =>
+    toCamelCase({
+      id: item.id,
+      userId: item.user_id,
+      name: item.name,
+      imageUrl: item.image_url,
+      description: item.description,
+      category: item.category,
+    })
+  );
+
   res.status(200).json({
     message: "List of recipes",
-    data: paginatedData,
+    data: mappedData,
     pagination: {
       page: Number(page),
       limit: Number(limit),
@@ -144,9 +154,7 @@ exports.getMyRecipes = async (req, res) => {
   }
 
   if (!recipes || recipes.length === 0) {
-    return res.status(404).json({ 
-      error: "No recipes found" 
-    });
+    return res.status(404).json({ error: "No recipes found" });
   }
 
   let filteredData = recipes;
@@ -184,15 +192,20 @@ exports.getMyRecipes = async (req, res) => {
     });
   }
 
-  const materialsMap = Object.fromEntries(materialsData.map((m) => [m.id, m]));
+  const materialsMap = Object.fromEntries(
+    materialsData.map((m) => [m.id, toCamelCase(m)])
+  );
 
-  const enrichedRecipes = paginatedData.map((recipe) => ({
-    ...recipe,
-    recipe_materials: recipe.recipe_materials.map((rm) => ({
-      ...rm,
+  const enrichedRecipes = paginatedData.map((recipe) => {
+    const recipeMaterials = recipe.recipe_materials.map((rm) => ({
+      ...toCamelCase(rm),
       material: materialsMap[rm.material_id] || null,
-    })),
-  }));
+    }));
+    return toCamelCase({
+      ...recipe,
+      recipeMaterials,
+    });
+  });
 
   res.status(200).json({
     message: "List of my recipes",
@@ -244,11 +257,11 @@ exports.getRecipeStats = async (req, res) => {
 
   res.status(200).json({
     message: "Recipe statistics",
-    data: {
+    data: toCamelCase({
       totalRecipes: totalRecipes.length,
       myRecipes: myRecipes.length,
       totalMaterials: totalMaterials.length,
-    },
+    }),
   });
 };
 
@@ -272,9 +285,7 @@ exports.getRecipeById = async (req, res) => {
   }
 
   if (!recipe) {
-    return res.status(404).json({ 
-      error: "Recipe not found" 
-    });
+    return res.status(404).json({ error: "Recipe not found" });
   }
 
   const materialIds = recipe.recipe_materials.map((rm) => rm.material_id);
@@ -291,22 +302,21 @@ exports.getRecipeById = async (req, res) => {
   }
 
   const materialsMap = Object.fromEntries(
-    materialsData.map((m) => [m.id, m.name])
+    materialsData.map((m) => [m.id, toCamelCase({ name: m.name, id: m.id })])
   );
   const enrichedMaterials = recipe.recipe_materials.map((rm) => ({
-    material: materialsMap[rm.material_id] || null,
+    material: materialsMap[rm.material_id]?.name || null,
     quantity: rm.quantity,
   }));
 
-  const { recipe_materials, ...rest } = recipe;
-  const formattedData = {
-    ...rest,
-    recipe_materials: enrichedMaterials,
-  };
-
-  res.status(200).json({ 
-    message: "Recipe details", data: formattedData 
+  const formattedData = toCamelCase({
+    ...recipe,
+    recipeMaterials: enrichedMaterials,
+    userId: recipe.user_id,
+    imageUrl: recipe.image_url,
   });
+
+  res.status(200).json({ message: "Recipe details", data: formattedData });
 };
 
 exports.createRecipe = async (req, res) => {
@@ -334,15 +344,11 @@ exports.createRecipe = async (req, res) => {
     !Array.isArray(materials) ||
     !Array.isArray(steps)
   ) {
-    return res.status(400).json({ 
-      error: "Missing required fields" 
-    });
+    return res.status(400).json({ error: "Missing required fields" });
   }
 
   if (typeof name !== "string") {
-    return res.status(400).json({ 
-      error: "Recipe name must be a string" 
-    });
+    return res.status(400).json({ error: "Recipe name must be a string" });
   }
 
   const { data: existingRecipe, error: checkError } = await supabaseNutritionist
@@ -360,9 +366,7 @@ exports.createRecipe = async (req, res) => {
   }
 
   if (existingRecipe) {
-    return res.status(400).json({ 
-      error: "Recipe name already exists" 
-    });
+    return res.status(400).json({ error: "Recipe name already exists" });
   }
 
   let imageUrl = null;
@@ -370,9 +374,7 @@ exports.createRecipe = async (req, res) => {
   if (req.file) {
     const file = req.file;
     if (file.size > MAX_IMAGE_SIZE) {
-      return res.status(400).json({ 
-        error: `Image size exceeds 5MB limit` 
-      });
+      return res.status(400).json({ error: `Image size exceeds 5MB limit` });
     }
 
     const sanitizedRecipeName = sanitizeFilePath(name);
@@ -406,10 +408,7 @@ exports.createRecipe = async (req, res) => {
         .from("recipes-images")
         .remove([uploadedFilePath])
         .catch((removeError) => {
-          console.error(
-            "Failed to clean up uploaded file:",
-            removeError.message
-          );
+          console.error("Failed to clean up uploaded file:", removeError.message);
         });
     }
     return res.status(500).json({
@@ -424,10 +423,7 @@ exports.createRecipe = async (req, res) => {
         .from("recipes-images")
         .remove([uploadedFilePath])
         .catch((removeError) => {
-          console.error(
-            "Failed to clean up uploaded file:",
-            removeError.message
-          );
+          console.error("Failed to clean up uploaded file:", removeError.message);
         });
     }
     return res.status(400).json({
@@ -447,10 +443,7 @@ exports.createRecipe = async (req, res) => {
         .from("recipes-images")
         .remove([uploadedFilePath])
         .catch((removeError) => {
-          console.error(
-            "Failed to clean up uploaded file:",
-            removeError.message
-          );
+          console.error("Failed to clean up uploaded file:", removeError.message);
         });
     }
     return res.status(500).json({
@@ -464,28 +457,21 @@ exports.createRecipe = async (req, res) => {
         .from("recipes-images")
         .remove([uploadedFilePath])
         .catch((removeError) => {
-          console.error(
-            "Failed to clean up uploaded file:",
-            removeError.message
-          );
+          console.error("Failed to clean up uploaded file:", removeError.message);
         });
     }
-    return res.status(400).json({ 
-      error: "Invalid material IDs" 
-    });
+    return res.status(400).json({ error: "Invalid material IDs" });
   }
 
   const materialsWithQuantity = materials.map((mat) => {
     const material = validMaterials.find((m) => m.id === mat.id);
     return {
       material,
-      quantity: mat.quantity || 1, // Default quantity to 1 if not provided
+      quantity: mat.quantity || 1,
     };
   });
   const totalNutrients =
-    require("../utils/nutritionUtils").calculateRecipeNutrients(
-      materialsWithQuantity
-    );
+    require("../utils/nutritionUtils").calculateRecipeNutrients(materialsWithQuantity);
 
   const recipe = {
     user_id: userId,
@@ -510,10 +496,7 @@ exports.createRecipe = async (req, res) => {
         .from("recipes-images")
         .remove([uploadedFilePath])
         .catch((removeError) => {
-          console.error(
-            "Failed to clean up uploaded file:",
-            removeError.message
-          );
+          console.error("Failed to clean up uploaded file:", removeError.message);
         });
     }
     return res.status(500).json({
@@ -538,10 +521,7 @@ exports.createRecipe = async (req, res) => {
         .from("recipes-images")
         .remove([uploadedFilePath])
         .catch((removeError) => {
-          console.error(
-            "Failed to clean up uploaded file:",
-            removeError.message
-          );
+          console.error("Failed to clean up uploaded file:", removeError.message);
         });
     }
     return res.status(500).json({
@@ -550,9 +530,7 @@ exports.createRecipe = async (req, res) => {
     });
   }
 
-  res.status(201).json({ 
-    message: "Recipe added successfully", data 
-  });
+  res.status(201).json({ message: "Recipe added successfully", data: toCamelCase(data) });
 };
 
 exports.updateRecipe = async (req, res) => {
@@ -575,9 +553,7 @@ exports.updateRecipe = async (req, res) => {
   }
 
   if (!existingRecipe) {
-    return res.status(403).json({ 
-        error: `You can only edit recipes you created` 
-      });
+    return res.status(403).json({ error: `You can only edit recipes you created` });
   }
 
   const { data: existingMaterials, error: matFetchError } =
@@ -622,21 +598,15 @@ exports.updateRecipe = async (req, res) => {
     steps && Array.isArray(steps) ? steps : existingRecipe.steps.split("\n");
 
   if (typeof updatedName !== "string" || updatedName.trim() === "") {
-    return res.status(400).json({ 
-      error: "Recipe name must be a non-empty string" 
-    });
+    return res.status(400).json({ error: "Recipe name must be a non-empty string" });
   }
 
   if (!Array.isArray(updatedMaterials)) {
-    return res.status(400).json({ 
-      error: "Materials must be an array" 
-    });
+    return res.status(400).json({ error: "Materials must be an array" });
   }
 
   if (!Array.isArray(updatedSteps)) {
-    return res.status(400).json({ 
-      error: "Steps must be an array" 
-    });
+    return res.status(400).json({ error: "Steps must be an array" });
   }
 
   if (updatedCategory) {
@@ -671,9 +641,7 @@ exports.updateRecipe = async (req, res) => {
       });
     }
     if (validMaterials.length !== materialIds.length) {
-      return res.status(400).json({ 
-        error: "Invalid material IDs" 
-      });
+      return res.status(400).json({ error: "Invalid material IDs" });
     }
 
     const materialsWithQuantity = materials.map((mat) => {
@@ -684,9 +652,7 @@ exports.updateRecipe = async (req, res) => {
       };
     });
     totalNutrients =
-      require("../utils/nutritionUtils").calculateRecipeNutrients(
-        materialsWithQuantity
-      );
+      require("../utils/nutritionUtils").calculateRecipeNutrients(materialsWithQuantity);
   } else {
     const materialIds = existingMaterials.map((mat) => mat.material_id);
     const { data: validMaterials, error: matError } = await supabaseResearcher
@@ -708,9 +674,7 @@ exports.updateRecipe = async (req, res) => {
       };
     });
     totalNutrients =
-      require("../utils/nutritionUtils").calculateRecipeNutrients(
-        materialsWithQuantity
-      );
+      require("../utils/nutritionUtils").calculateRecipeNutrients(materialsWithQuantity);
   }
 
   let imageUrl = existingRecipe.image_url;
@@ -718,9 +682,7 @@ exports.updateRecipe = async (req, res) => {
   if (req.file) {
     const file = req.file;
     if (file.size > MAX_IMAGE_SIZE) {
-      return res.status(400).json({ 
-        error: `Image size exceeds 5MB limit` 
-      });
+      return res.status(400).json({ error: `Image size exceeds 5MB limit` });
     }
 
     if (imageUrl) {
@@ -783,10 +745,7 @@ exports.updateRecipe = async (req, res) => {
         .from("recipes-images")
         .remove([uploadedFilePath])
         .catch((removeError) => {
-          console.error(
-            "Failed to clean up uploaded file:",
-            removeError.message
-          );
+          console.error("Failed to clean up uploaded file:", removeError.message);
         });
     }
     return res.status(500).json({
@@ -816,10 +775,7 @@ exports.updateRecipe = async (req, res) => {
           .from("recipes-images")
           .remove([uploadedFilePath])
           .catch((removeError) => {
-            console.error(
-              "Failed to clean up uploaded file:",
-              removeError.message
-            );
+            console.error("Failed to clean up uploaded file:", removeError.message);
           });
       }
       return res.status(500).json({
@@ -829,9 +785,7 @@ exports.updateRecipe = async (req, res) => {
     }
   }
 
-  res.status(200).json({ 
-    message: "Recipe updated successfully", data 
-  });
+  res.status(200).json({ message: "Recipe updated successfully", data: toCamelCase(data) });
 };
 
 exports.deleteRecipe = async (req, res) => {
@@ -853,9 +807,7 @@ exports.deleteRecipe = async (req, res) => {
   }
 
   if (!recipe) {
-    return res.status(403).json({ 
-      error: `You can only delete recipes you created` 
-    });
+    return res.status(403).json({ error: `You can only delete recipes you created` });
   }
 
   if (recipe.image_url) {
@@ -891,7 +843,5 @@ exports.deleteRecipe = async (req, res) => {
     });
   }
 
-  res.status(200).json({ 
-    message: "Recipe deleted successfully" 
-  });
+  res.status(200).json({ message: "Recipe deleted successfully" });
 };

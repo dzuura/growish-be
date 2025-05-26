@@ -2,6 +2,7 @@ const supabaseResearcher = require("../config/supabase-researcher");
 const supabaseNutritionist = require("../config/supabase-nutritionist");
 const materialService = require("../services/materialService");
 const { sanitizeFilePath } = require("../utils/fileUtils");
+const { toCamelCase } = require("../utils/camelCaseUtils");
 
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
 
@@ -68,9 +69,7 @@ exports.getMaterials = async (req, res) => {
   }
 
   if (!data || data.length === 0) {
-    return res.status(404).json({ 
-      error: "No materials found" 
-    });
+    return res.status(404).json({ error: "No materials found" });
   }
 
   let filteredData = data;
@@ -98,17 +97,17 @@ exports.getMaterials = async (req, res) => {
         ?.map((mc) => mc.categories?.name)
         .filter(Boolean) || [];
 
-    return {
+    return toCamelCase({
       id: item.id,
-      user_id: item.user_id,
+      userId: item.user_id,
       name: item.name,
-      image_url: item.image_url,
+      imageUrl: item.image_url,
       calories: item.calories,
       protein: item.protein,
       carbohydrates: item.carbohydrates,
       sugar: item.sugar,
       categories: categoryNames,
-    };
+    });
   });
 
   res.status(200).json({
@@ -183,9 +182,7 @@ exports.getMyMaterials = async (req, res) => {
   }
 
   if (!data || data.length === 0) {
-    return res.status(404).json({ 
-      error: "No materials found" 
-    });
+    return res.status(404).json({ error: "No materials found" });
   }
 
   let filteredData = data;
@@ -213,11 +210,11 @@ exports.getMyMaterials = async (req, res) => {
         ?.map((mc) => mc.categories?.name)
         .filter(Boolean) || [];
 
-    const { material_categories, ...rest } = item;
-    return {
-      ...rest,
+    return toCamelCase({
+      ...item,
       categories: categoryNames,
-    };
+      materialCategories: undefined,
+    });
   });
 
   res.status(200).json({
@@ -283,10 +280,12 @@ exports.getMaterialStats = async (req, res) => {
     });
   }
 
-  const categoryStats = categories.map((cat) => ({
-    name: cat.name,
-    count: cat.material_categories.length,
-  }));
+  const categoryStats = categories.map((cat) =>
+    toCamelCase({
+      name: cat.name,
+      count: cat.material_categories.length,
+    })
+  );
 
   const { data: MaterialCategory, error: matCatError } =
     await supabaseResearcher
@@ -308,13 +307,13 @@ exports.getMaterialStats = async (req, res) => {
 
   res.status(200).json({
     message: "Material statistics",
-    data: {
+    data: toCamelCase({
       totalMaterials: totalMaterials.length,
       myMaterials: myMaterials.length,
       newMaterials: newMaterials.length,
       categoryStats,
       totalMaterialCategory: totalMaterialCategory,
-    },
+    }),
   });
 };
 
@@ -345,9 +344,7 @@ exports.getMaterialById = async (req, res) => {
   }
 
   if (!data) {
-    return res.status(404).json({ 
-      error: "Material not found" 
-    });
+    return res.status(404).json({ error: "Material not found" });
   }
 
   const categoryNames =
@@ -355,11 +352,12 @@ exports.getMaterialById = async (req, res) => {
       ?.map((mc) => mc.categories?.name)
       .filter(Boolean) || [];
 
-  const { material_categories, created_at, ...rest } = data;
-  const formattedData = {
-    ...rest,
+  const formattedData = toCamelCase({
+    ...data,
     categories: categoryNames,
-  };
+    materialCategories: undefined,
+    createdAt: undefined,
+  });
 
   res.status(200).json({
     message: "Material details",
@@ -373,28 +371,26 @@ exports.createMaterial = async (req, res) => {
     name,
     calories,
     protein,
-    total_fat,
-    saturated_fat,
-    trans_fat,
+    totalFat,
+    saturatedFat,
+    transFat,
     cholesterol,
     carbohydrates,
     sugar,
     fiber,
     natrium,
-    amino_acid,
-    vitamin_d,
+    aminoAcid,
+    vitaminD,
     magnesium,
     iron,
-    test_date,
-    material_category,
+    testDate,
+    materialCategory,
     notes,
     source,
   } = req.body;
 
   if (!name) {
-    return res.status(400).json({ 
-      error: "Material name is required" 
-    });
+    return res.status(400).json({ error: "Material name is required" });
   }
 
   let imageUrl = null;
@@ -402,9 +398,7 @@ exports.createMaterial = async (req, res) => {
   if (req.file) {
     const file = req.file;
     if (file.size > MAX_IMAGE_SIZE) {
-      return res.status(400).json({ 
-        error: `Image size exceeds 5MB limit` 
-      });
+      return res.status(400).json({ error: `Image size exceeds 5MB limit` });
     }
 
     const sanitizedName = sanitizeFilePath(name);
@@ -436,20 +430,20 @@ exports.createMaterial = async (req, res) => {
     image_url: imageUrl,
     calories,
     protein,
-    total_fat,
-    saturated_fat,
-    trans_fat,
+    total_fat: totalFat,
+    saturated_fat: saturatedFat,
+    trans_fat: transFat,
     cholesterol,
     carbohydrates,
     sugar,
     fiber,
     natrium,
-    amino_acid,
-    vitamin_d,
+    amino_acid: aminoAcid,
+    vitamin_d: vitaminD,
     magnesium,
     iron,
-    test_date,
-    material_category,
+    test_date: testDate,
+    material_category: materialCategory,
     notes,
     source,
   };
@@ -466,16 +460,11 @@ exports.createMaterial = async (req, res) => {
         .from("materials-images")
         .remove([uploadedFilePath])
         .catch((removeError) => {
-          console.error(
-            "Failed to clean up uploaded file:",
-            removeError.message
-          );
+          console.error("Failed to clean up uploaded file:", removeError.message);
         });
     }
     if (error.code === "23505") {
-      return res.status(400).json({ 
-        error: "Material name already exists" 
-      });
+      return res.status(400).json({ error: "Material name already exists" });
     }
     return res.status(500).json({
       error: "Failed to add material",
@@ -491,16 +480,12 @@ exports.createMaterial = async (req, res) => {
         .from("materials-images")
         .remove([uploadedFilePath])
         .catch((removeError) => {
-          console.error(
-            "Failed to clean up uploaded file:",
-            removeError.message
-          );
+          console.error("Failed to clean up uploaded file:", removeError.message);
         });
     }
     return res.status(400).json({
       error: "No matching categories found for the material",
-      details:
-        "Please ensure categories with appropriate nutrient ranges exist",
+      details: "Please ensure categories with appropriate nutrient ranges exist",
     });
   }
 
@@ -519,10 +504,7 @@ exports.createMaterial = async (req, res) => {
         .from("materials-images")
         .remove([uploadedFilePath])
         .catch((removeError) => {
-          console.error(
-            "Failed to clean up uploaded file:",
-            removeError.message
-          );
+          console.error("Failed to clean up uploaded file:", removeError.message);
         });
     }
     return res.status(500).json({
@@ -531,9 +513,7 @@ exports.createMaterial = async (req, res) => {
     });
   }
 
-  res.status(201).json({ 
-    message: "Material added successfully", data 
-  });
+  res.status(201).json({ message: "Material added successfully", data: toCamelCase(data) });
 };
 
 exports.updateMaterial = async (req, res) => {
@@ -543,28 +523,26 @@ exports.updateMaterial = async (req, res) => {
     name,
     calories,
     protein,
-    total_fat,
-    saturated_fat,
-    trans_fat,
+    totalFat,
+    saturatedFat,
+    transFat,
     cholesterol,
     carbohydrates,
     sugar,
     fiber,
     natrium,
-    amino_acid,
-    vitamin_d,
+    aminoAcid,
+    vitaminD,
     magnesium,
     iron,
-    test_date,
-    material_category,
+    testDate,
+    materialCategory,
     notes,
     source,
   } = req.body;
 
   if (name && typeof name !== "string") {
-    return res.status(400).json({ 
-      error: "Material name must be a string" 
-    });
+    return res.status(400).json({ error: "Material name must be a string" });
   }
 
   const { data: material, error: checkError } = await supabaseResearcher
@@ -581,15 +559,11 @@ exports.updateMaterial = async (req, res) => {
   }
 
   if (!material) {
-    return res.status(404).json({ 
-      error: `Material with ID ${id} not found` 
-    });
+    return res.status(404).json({ error: `Material with ID ${id} not found` });
   }
 
   if (material.user_id !== userId) {
-    return res.status(403).json({ 
-      error: "You can only edit materials you created" 
-    });
+    return res.status(403).json({ error: "You can only edit materials you created" });
   }
 
   let imageUrl = material.image_url;
@@ -597,9 +571,7 @@ exports.updateMaterial = async (req, res) => {
   if (req.file) {
     const file = req.file;
     if (file.size > MAX_IMAGE_SIZE) {
-      return res.status(400).json({ 
-        error: `Image size exceeds 5MB limit` 
-      });
+      return res.status(400).json({ error: `Image size exceeds 5MB limit` });
     }
 
     if (imageUrl) {
@@ -645,20 +617,20 @@ exports.updateMaterial = async (req, res) => {
     image_url: imageUrl,
     calories: calories !== undefined ? calories : material.calories,
     protein: protein !== undefined ? protein : material.protein,
-    total_fat: total_fat !== undefined ? total_fat : material.total_fat,
-    saturated_fat: saturated_fat !== undefined ? saturated_fat : material.saturated_fat,
-    trans_fat: trans_fat !== undefined ? trans_fat : material.trans_fat,
+    total_fat: totalFat !== undefined ? totalFat : material.total_fat,
+    saturated_fat: saturatedFat !== undefined ? saturatedFat : material.saturated_fat,
+    trans_fat: transFat !== undefined ? transFat : material.trans_fat,
     cholesterol: cholesterol !== undefined ? cholesterol : material.cholesterol,
     carbohydrates: carbohydrates !== undefined ? carbohydrates : material.carbohydrates,
     sugar: sugar !== undefined ? sugar : material.sugar,
     fiber: fiber !== undefined ? fiber : material.fiber,
     natrium: natrium !== undefined ? natrium : material.natrium,
-    amino_acid: amino_acid !== undefined ? amino_acid : material.amino_acid,
-    vitamin_d: vitamin_d !== undefined ? vitamin_d : material.vitamin_d,
+    amino_acid: aminoAcid !== undefined ? aminoAcid : material.amino_acid,
+    vitamin_d: vitaminD !== undefined ? vitaminD : material.vitamin_d,
     magnesium: magnesium !== undefined ? magnesium : material.magnesium,
     iron: iron !== undefined ? iron : material.iron,
-    test_date: test_date !== undefined ? test_date : material.test_date,
-    material_category: material_category !== undefined ? material_category : material.material_category,
+    test_date: testDate !== undefined ? testDate : material.test_date,
+    material_category: materialCategory !== undefined ? materialCategory : material.material_category,
     notes: notes !== undefined ? notes : material.notes,
     source: source !== undefined ? source : material.source,
   };
@@ -676,16 +648,11 @@ exports.updateMaterial = async (req, res) => {
         .from("materials-images")
         .remove([uploadedFilePath])
         .catch((removeError) => {
-          console.error(
-            "Failed to clean up uploaded file:",
-            removeError.message
-          );
+          console.error("Failed to clean up uploaded file:", removeError.message);
         });
     }
     if (error.code === "23505") {
-      return res.status(400).json({ 
-        error: "Material name already exists" 
-      });
+      return res.status(400).json({ error: "Material name already exists" });
     }
     return res.status(500).json({
       error: "Failed to update material",
@@ -704,10 +671,7 @@ exports.updateMaterial = async (req, res) => {
         .from("materials-images")
         .remove([uploadedFilePath])
         .catch((removeError) => {
-          console.error(
-            "Failed to clean up uploaded file:",
-            removeError.message
-          );
+          console.error("Failed to clean up uploaded file:", removeError.message);
         });
     }
     return res.status(400).json({
@@ -730,10 +694,7 @@ exports.updateMaterial = async (req, res) => {
         .from("materials-images")
         .remove([uploadedFilePath])
         .catch((removeError) => {
-          console.error(
-            "Failed to clean up uploaded file:",
-            removeError.message
-          );
+          console.error("Failed to clean up uploaded file:", removeError.message);
         });
     }
     return res.status(500).json({
@@ -742,9 +703,7 @@ exports.updateMaterial = async (req, res) => {
     });
   }
 
-  res.status(200).json({ 
-    message: "Material updated successfully", data 
-  });
+  res.status(200).json({ message: "Material updated successfully", data: toCamelCase(data) });
 };
 
 exports.deleteMaterial = async (req, res) => {
@@ -765,15 +724,11 @@ exports.deleteMaterial = async (req, res) => {
   }
 
   if (!material) {
-    return res.status(404).json({ 
-      error: `Material with ID ${id} not found` 
-    });
+    return res.status(404).json({ error: `Material with ID ${id} not found` });
   }
 
   if (material.user_id !== userId) {
-    return res.status(403).json({ 
-      error: "You can only delete materials you created" 
-    });
+    return res.status(403).json({ error: "You can only delete materials you created" });
   }
 
   if (material.image_url) {
@@ -815,7 +770,5 @@ exports.deleteMaterial = async (req, res) => {
     });
   }
 
-  res.status(200).json({ 
-    message: "Material deleted successfully" 
-  });
+  res.status(200).json({ message: "Material deleted successfully" });
 };
