@@ -91,6 +91,11 @@ growish-be/
 
 ---
 
+## 📘 Dokumentasi API
+Lihat Dokumentasi API Interaktif (Postman) [di sini](https://documenter.getpostman.com/view/39730752/2sB2qfBfS2).
+
+---
+
 ## 🔐 Catatan
 
 ### 1. Autentikasi: Semua endpoint (kecuali register/login) memerlukan header:
