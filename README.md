@@ -31,7 +31,7 @@ Growish adalah sistem backend untuk mengelola data nutrisi bahan pangan dan rese
 
 ### 1. Clone Repository
 ```bash
-git clone <repository-url>
+git clone https://github.com/dzuura/growish-be.git
 cd growish-be
 ```
 ### 2. Instal Dependensi
@@ -66,27 +66,34 @@ npm run dev
 
 ```lua
 growish-be/
-├── src/
-│   ├── config/
-│   │   ├── supabase-researcher.js
-│   │   └── supabase-nutritionist.js
-│   ├── controllers/
-│   │   ├── authController.js
-│   │   ├── categoryController.js
-│   │   ├── materialController.js
-│   ├── middleware/
-│   │   ├── auth.js
-│   │   └── roleCheck.js
-│   ├── routes/
-│   │   ├── auth.js
-│   │   ├── categories.js
-│   │   ├── materials.js
-│   ├── services/
-│   │   └── materialService.js
-│   └── index.js
-├── .env
+├── README.md
+├── LICENSE
 ├── package.json
-└── README.md
+├── .env.example
+└── src/
+    ├── index.js
+    ├── config/
+    │   ├── supabase-nutritionist.js
+    │   └── supabase-researcher.js
+    ├── controllers/
+    │   ├── authController.js
+    │   ├── categoryController.js
+    │   ├── materialController.js
+    │   └── recipeController.js
+    ├── middleware/
+    │   ├── auth.js
+    │   └── roleCheck.js
+    ├── routes/
+    │   ├── auth.js
+    │   ├── categories.js
+    │   ├── materials.js
+    │   └── recipes.js
+    ├── services/
+    │   └── materialService.js
+    └── utils/
+        ├── camelCaseUtils.js
+        ├── fileUtils.js
+        └── nutritionUtils.js
 ```
 
 ---
